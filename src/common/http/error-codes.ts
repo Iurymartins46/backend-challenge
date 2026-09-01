@@ -13,6 +13,9 @@ export const ErrorCode = {
   WalletNotFound: 'error.wallet.not_found',
   WalletAlreadyExists: 'error.wallet.already_exists',
   IdempotencyPayloadConflict: 'error.idempotency.payload_conflict',
+  WagerExternalTransactionConflict: 'error.wager.external_transaction_conflict',
+  WagerWalletContextMismatch: 'error.wager.wallet_context_mismatch',
+  WagerTransactionNotFound: 'error.wager.transaction_not_found',
   WagerInsufficientFunds: 'error.wager.insufficient_funds',
   WagerReversalNegativeBalance: 'error.wager.reversal_negative_balance',
   WagerReferenceNotFound: 'error.wager.reference_not_found',
@@ -102,6 +105,21 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorCodeDescription>> = 
     status: 409,
     meaning: 'The idempotency key was reused with another payload.',
     clientAction: 'Correct the key or payload.',
+  },
+  [ErrorCode.WagerExternalTransactionConflict]: {
+    status: 409,
+    meaning: 'The provider external transaction id was already used.',
+    clientAction: 'Use the original transaction or a new external id.',
+  },
+  [ErrorCode.WagerWalletContextMismatch]: {
+    status: 422,
+    meaning: 'The wager player or currency does not match the wallet.',
+    clientAction: 'Use the wallet player and currency.',
+  },
+  [ErrorCode.WagerTransactionNotFound]: {
+    status: 404,
+    meaning: 'The wagering transaction does not exist.',
+    clientAction: 'Check the transaction identifier.',
   },
   [ErrorCode.WagerInsufficientFunds]: {
     status: 422,

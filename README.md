@@ -4,10 +4,12 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–5 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–6 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
-> processamento HTTP/SQS de apostas entra nas fases seguintes. O
+> processamento HTTP síncrono de BET/WIN/LOSS, idempotência, lock por wallet e
+> consultas de transação estão implementados; processamento SQS de apostas entra nas
+> fases seguintes. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -164,6 +166,10 @@ mantê-los junto com o código.
 O arquivo `.env` da raiz continua sendo exclusivo do Compose/aplicação. Não coloque
 segredos nos YAMLs do Bruno; quando uma rota futura precisar de credencial, mantenha o
 valor real fora do Git e referencie uma variável local do Bruno.
+
+As rotas síncronas de apostas da Fase 6 exigem o header `Idempotency-Key` e ficam em
+`POST /wagering/transactions`, `GET /wagering/transactions/:transactionId` e
+`GET /providers/:providerId/wagering/transactions/:externalTransactionId`.
 
 ## Health checks
 

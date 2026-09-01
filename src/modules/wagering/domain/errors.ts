@@ -7,6 +7,10 @@ export type DomainErrorCode =
   | 'error.money.currency_mismatch'
   | 'error.wallet.not_found'
   | 'error.wallet.already_exists'
+  | 'error.idempotency.payload_conflict'
+  | 'error.wager.external_transaction_conflict'
+  | 'error.wager.wallet_context_mismatch'
+  | 'error.wager.transaction_not_found'
   | 'error.domain.invariant_violation'
   | 'error.wager.insufficient_funds'
   | 'error.wager.reversal_negative_balance'
@@ -175,5 +179,50 @@ export class WalletNotFoundError extends DomainError {
 export class WalletAlreadyExistsError extends DomainError {
   constructor() {
     super('The player already has a wallet in this currency.', 'error.wallet.already_exists');
+  }
+}
+
+export class IdempotencyPayloadConflictError extends DomainError {
+  constructor() {
+    super(
+      'The idempotency key was reused with another business payload.',
+      'error.idempotency.payload_conflict',
+    );
+  }
+}
+
+export class ExternalTransactionConflictError extends DomainError {
+  constructor() {
+    super(
+      'The provider external transaction id was already used with another idempotency key.',
+      'error.wager.external_transaction_conflict',
+    );
+  }
+}
+
+export class WagerWalletContextMismatchError extends DomainError {
+  constructor() {
+    super(
+      'The wager player or currency does not match the wallet.',
+      'error.wager.wallet_context_mismatch',
+    );
+  }
+}
+
+export class WagerTransactionNotFoundError extends DomainError {
+  constructor() {
+    super(
+      'The requested wagering transaction does not exist.',
+      'error.wager.transaction_not_found',
+    );
+  }
+}
+
+export class DependencyUnavailableError extends DomainError {
+  constructor() {
+    super(
+      'A required database dependency is temporarily unavailable.',
+      'error.infrastructure.dependency_unavailable',
+    );
   }
 }

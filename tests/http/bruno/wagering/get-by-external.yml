@@ -1,0 +1,29 @@
+info:
+  name: Consultar transação por external id
+  type: http
+  seq: 3
+  tags:
+    - phase-6
+    - wagering
+
+http:
+  method: GET
+  url: '{{baseUrl}}/providers/{{providerId}}/wagering/transactions/{{externalTransactionId}}'
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("consulta a transacao pelo provider", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.externalTransactionId).to.equal("{{externalTransactionId}}");
+          expect(res.body.money.amount).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Consulte a transação pelo provider e external id salvos no ambiente local.

@@ -1,0 +1,54 @@
+info:
+  name: Processar transação
+  type: http
+  seq: 1
+  tags:
+    - phase-6
+    - wagering
+
+http:
+  method: POST
+  url: '{{baseUrl}}/wagering/transactions'
+  headers:
+    - name: content-type
+      value: application/json
+    - name: Idempotency-Key
+      value: '{{idempotencyKey}}'
+  body:
+    type: json
+    data: |-
+      {
+        "providerId": "{{providerId}}",
+        "externalTransactionId": "{{externalTransactionId}}",
+        "playerId": "{{playerId}}",
+        "walletId": "{{walletId}}",
+        "roundId": "round-bruno",
+        "gameId": "fortune-chimp",
+        "kind": "BET",
+        "money": {
+          "amount": "10.00",
+          "currency": "BRL"
+        }
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("processa a transacao e devolve dinheiro como string", function() {
+          expect(res.status).to.equal(201);
+          expect(res.body.transactionId).to.be.a("string").and.not.be.empty;
+          expect(res.body.status).to.equal("PROCESSED");
+          expect(res.body.balance.amount).to.be.a("string");
+          expect(res.body.idempotentReplay).to.equal(false);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Execute depois de criar a wallet. Copie o transactionId retornado para a variável
+  transactionId do ambiente local antes de executar as consultas.

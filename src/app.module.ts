@@ -12,6 +12,7 @@ import { AppLoggingModule } from './infrastructure/logging/logging.module';
 import { SqsModule } from './infrastructure/messaging/sqs.module';
 import { ProviderAuthGuard } from './modules/auth/provider-auth.guard';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { WageringModule } from './modules/wagering/wagering.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
     AuthModule,
     HealthModule,
     WalletModule,
+    WageringModule,
   ],
   providers: [
     {
