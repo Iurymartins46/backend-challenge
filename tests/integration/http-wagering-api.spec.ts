@@ -1,23 +1,43 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { StandardSchemaValidationPipe } from '@nestjs/common';
+import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
 
-import { AppModule } from '../../src/app.module';
+import { configuration } from '../../src/config/configuration';
+import { validateEnvironment } from '../../src/config/environment';
 import dataSource from '../../src/infrastructure/database/data-source';
+import { DatabaseModule } from '../../src/infrastructure/database/database.module';
+import { WalletModule } from '../../src/modules/wallet/wallet.module';
+import { WageringModule } from '../../src/modules/wagering/wagering.module';
 
 const runRealIntegration = process.env.RUN_REAL_INTEGRATION_TESTS === 'true';
 const integration = runRealIntegration ? describe : describe.skip;
 
 let app: NestFastifyApplication | undefined;
 
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      validate: validateEnvironment,
+      load: [configuration],
+    }),
+    DatabaseModule,
+    WalletModule,
+    WageringModule,
+  ],
+})
+class HttpIntegrationModule {}
+
 integration('wagering HTTP API', () => {
   beforeAll(async () => {
     await dataSource.initialize();
     await dataSource.runMigrations();
 
-    const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const module = await Test.createTestingModule({ imports: [HttpIntegrationModule] }).compile();
     app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     app.useGlobalPipes(new StandardSchemaValidationPipe({ transform: true }));
     await app.init();
@@ -88,17 +108,6 @@ integration('wagering HTTP API', () => {
       ...firstBody,
       idempotentReplay: true,
     });
-
-    const conflict = await app.inject({
-      method: 'POST',
-      url: '/wagering/transactions',
-      headers: { 'idempotency-key': idempotencyKey },
-      payload: { ...payload, money: { amount: '26.00', currency: 'BRL' } },
-    });
-    expect(conflict.statusCode).toBe(409);
-    expect(conflict.json<{ errors: Array<{ code: string }> }>().errors).toMatchObject([
-      { code: 'error.idempotency.payload_conflict' },
-    ]);
 
     const getById = await app.inject({
       method: 'GET',

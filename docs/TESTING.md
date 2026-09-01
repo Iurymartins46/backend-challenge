@@ -21,7 +21,7 @@ desenvolvimento. `migrations-round-trip.spec.ts` cria um banco PostgreSQL efême
 `up/down/up` em schema vazio e o remove ao final. `financial-persistence.spec.ts` usa
 identificadores únicos e não tenta remover lançamentos, respeitando o trigger append-only
 do ledger. `http-wagering-api.spec.ts` exerce o contrato Nest/Fastify com PostgreSQL
-real para criação de wallet, BET, replay, conflito e as duas leituras de transação. Com
+real para criação de wallet, BET, replay e as duas leituras de transação. Com
 o PostgreSQL do Compose saudável, execute
 `RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`.
 
