@@ -1,0 +1,33 @@
+info:
+  name: Readiness
+  type: http
+  seq: 2
+  tags:
+    - phase-1
+    - smoke
+
+http:
+  method: GET
+  url: '{{baseUrl}}/health/ready'
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: '200'
+    - expression: res.body.status
+      operator: eq
+      value: ok
+    - expression: res.body.check
+      operator: eq
+      value: ready
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Confirma o readiness definido na Fase 1. Banco e SQS passam a integrar esta
+  verificação quando os adapters correspondentes forem implementados.

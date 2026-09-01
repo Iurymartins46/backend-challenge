@@ -74,6 +74,35 @@ integração, concorrência ou o invariante wallet/ledger.
 - autenticação, ORM, dinheiro, locks, inbox/outbox, retry e observabilidade têm decisão;
 - toda restrição eliminatória possui uma fase e um teste associado.
 
+### Quadro de requisitos e evidências
+
+`passing` significa que a decisão ou o rastreamento já está definido nesta fase;
+`pending` significa que a garantia ainda depende da implementação e do teste real da
+fase indicada. Nenhum item `pending` deve ser tratado como comportamento já validado.
+
+| ID | Requisito ou decisão | Estado | Fase responsável | Evidência prevista |
+|---|---|---|---|---|
+| F0-01 | Autenticação fica adiada, com `ProviderIdentityPort`, guard e `AUTH_MODE=none` como extensão explícita. | passing | 1 e 15 | smoke do guard no-op; testes OIDC somente na fase opcional |
+| F0-02 | TypeORM é o ORM escolhido; repositórios financeiros usam o `EntityManager` da mesma Unit of Work. | passing | 4 | integração de transação e rollback com PostgreSQL |
+| F0-03 | Dinheiro usa string de duas casas na borda, `bigint` de centavos no domínio e `BIGINT` no PostgreSQL. | passing | 2 e 4 | unitários de `Money` e round-trip PostgreSQL |
+| F0-04 | Concorrência é serializada por `walletId` com lock pessimista apenas na wallet; wallets diferentes permanecem paralelas. | passing | 6 e 13 | corrida 80/80, 50 submissões e teste com wallets distintas |
+| F0-05 | Inbox, wallet, transação, ledger e outbox confirmam na mesma transação; ack SQS ocorre somente após o commit. | passing | 8 e 9 | atomicidade, redelivery e failpoint pós-commit/pré-ack |
+| F0-06 | Falhas transitórias usam retry limitado/backoff; negócio terminal recebe ack e falha permanente vai para DLQ. | passing | 6, 8, 9 e 10 | testes reais de retry, DLQ, lease e recuperação |
+| F0-07 | Observabilidade começa no bootstrap, com logs estruturados, traces, métricas e health separados sem entrar no caminho financeiro. | passing | 1 e 12 | exporter/collector indisponível, logs redigidos, métricas e readiness |
+| F0-08 | Não usar `number`, `float` ou `double` para dinheiro. | pending | 2 e 13 | unitários de `Money` e auditoria `rg` de código/testes |
+| F0-09 | Idempotência não depende de memória; chave e hash do payload são persistidos e sobrevivem a restart. | pending | 4, 6, 8 e 13 | constraints, replay/conflito e restart com PostgreSQL real |
+| F0-10 | SQS FIFO não é a garantia final de consistência nem de deduplicação. | pending | 8 e 13 | redelivery real e deduplicação persistente via inbox |
+| F0-11 | Eventos nunca são publicados antes do commit financeiro. | pending | 9 e 13 | failpoint pós-commit/pré-publicação e auditoria da outbox |
+| F0-12 | Ledger é auditável e não pode ser atualizado nem excluído. | pending | 4 e 13 | trigger/constraints e tentativa de `UPDATE`/`DELETE` via SQL |
+| F0-13 | Não existe lock global compartilhado por todas as wallets. | pending | 6 e 13 | processamento paralelo de wallets distintas |
+| F0-14 | Saldo não usa `read → calculate → update` sem controle de concorrência. | pending | 6 e 13 | duas BETs concorrentes sobre saldo 100 e auditoria final |
+| F0-15 | A solução permanece correta com três ou mais instâncias. | pending | 13 | harness com pelo menos três processos reais |
+| F0-16 | Unicidade, imutabilidade e não-negatividade são garantidas no schema PostgreSQL. | pending | 4 e 13 | migration `up/down/up`, SQL direto e constraints reais |
+
+O quadro é deliberadamente conservador: `passing` nesta fase não substitui os testes
+de integração e concorrência posteriores. A matriz geral de rastreabilidade abaixo
+resume os mesmos vínculos por requisito do desafio.
+
 ---
 
 ## Fase 1 — Bootstrap, qualidade e infraestrutura principal
@@ -83,7 +112,7 @@ e dependências locais reproduzíveis, sem implementar o domínio financeiro.
 
 ### Atividades
 
-- iniciar projeto NestJS/TypeScript strict com o adapter HTTP padrão;
+- iniciar projeto NestJS/TypeScript strict com Fastify e validação Standard Schema/Zod;
 - configurar scripts Bun: `dev`, `start`, `build`, `typecheck`, `lint`, `test`,
   `test:unit`, `test:integration`, `test:concurrency` e migrations;
 - fazer um smoke test antecipado, sob Bun, dos pacotes escolhidos para NestJS,
@@ -100,6 +129,8 @@ e dependências locais reproduzíveis, sem implementar o domínio financeiro.
 - criar `docker/api/Dockerfile` multi-stage com usuário sem privilégios e graceful
   shutdown;
 - criar `docker/compose.yaml` com PostgreSQL, LocalStack, initializer das filas e API;
+- manter LocalStack Community 4.14.0 como padrão sem credencial e documentar que a linha
+  2026.03.0+ exige `LOCALSTACK_AUTH_TOKEN` local não versionado;
 - reservar `docker/compose.observability.yaml` e `docker/observability/` para a
   configuração posterior, sem subir a stack visual nesta fase;
 - configurar healthchecks dos containers e volumes nomeados;
@@ -116,9 +147,9 @@ e dependências locais reproduzíveis, sem implementar o domínio financeiro.
 bun install --frozen-lockfile
 bun run typecheck
 bun run lint
-docker compose -f docker/compose.yaml config
-docker compose -f docker/compose.yaml up -d postgres localstack localstack-init
-docker compose -f docker/compose.yaml ps
+docker compose --env-file .env -f docker/compose.yaml config
+docker compose --env-file .env -f docker/compose.yaml up -d postgres localstack localstack-init
+docker compose --env-file .env -f docker/compose.yaml ps
 ```
 
 Validar por comando AWS contra o LocalStack que as três filas existem e que a fila de
@@ -508,7 +539,7 @@ stack visual, sem tornar observabilidade parte do caminho crítico.
 
 ### Critério de aceite
 
-- `docker compose -f docker/compose.yaml` funciona sem overlay;
+- `docker compose --env-file .env -f docker/compose.yaml` funciona sem overlay;
 - quando a 12B for executada, o overlay sobe toda a stack e não expõe backends além do
   necessário;
 - ids de alta cardinalidade aparecem em logs/traces, nunca em labels de métrica.
@@ -587,9 +618,9 @@ bun run typecheck
 bun run test:unit
 bun run test:integration
 bun run test:concurrency
-docker compose -f docker/compose.yaml config
+docker compose --env-file .env -f docker/compose.yaml config
 # Executar somente se a subfase 12B tiver sido implementada:
-docker compose -f docker/compose.yaml -f docker/compose.observability.yaml config
+docker compose --env-file .env -f docker/compose.yaml -f docker/compose.observability.yaml config
 ```
 
 ### Critério de aceite

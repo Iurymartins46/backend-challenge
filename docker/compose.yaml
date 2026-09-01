@@ -1,0 +1,124 @@
+name: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in .env}
+
+x-localstack-credentials: &localstack-credentials
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID in .env}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY in .env}
+  AWS_DEFAULT_REGION: ${AWS_REGION:?Set AWS_REGION in .env}
+
+x-api-environment: &api-environment
+  NODE_ENV: ${NODE_ENV:?Set NODE_ENV in .env}
+  HOST: ${HOST:?Set HOST in .env}
+  PORT: ${PORT:?Set PORT in .env}
+  LOG_LEVEL: ${LOG_LEVEL:?Set LOG_LEVEL in .env}
+  DATABASE_URL: ${DATABASE_URL_DOCKER:?Set DATABASE_URL_DOCKER in .env}
+  AWS_REGION: ${AWS_REGION:?Set AWS_REGION in .env}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID in .env}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY in .env}
+  SQS_ENDPOINT: ${SQS_ENDPOINT_DOCKER:?Set SQS_ENDPOINT_DOCKER in .env}
+  SQS_COMMAND_QUEUE_NAME: ${SQS_COMMAND_QUEUE_NAME:?Set SQS_COMMAND_QUEUE_NAME in .env}
+  SQS_COMMAND_DLQ_NAME: ${SQS_COMMAND_DLQ_NAME:?Set SQS_COMMAND_DLQ_NAME in .env}
+  SQS_EVENTS_QUEUE_NAME: ${SQS_EVENTS_QUEUE_NAME:?Set SQS_EVENTS_QUEUE_NAME in .env}
+  AUTH_MODE: ${AUTH_MODE:?Set AUTH_MODE in .env}
+  SWAGGER_ENABLED: ${SWAGGER_ENABLED:?Set SWAGGER_ENABLED in .env}
+  OTEL_ENABLED: ${OTEL_ENABLED:?Set OTEL_ENABLED in .env}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:?Set OTEL_SERVICE_NAME in .env}
+  OTEL_SERVICE_VERSION: ${OTEL_SERVICE_VERSION:?Set OTEL_SERVICE_VERSION in .env}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT_DOCKER:?Set OTEL_EXPORTER_OTLP_ENDPOINT_DOCKER in .env}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?Set POSTGRES_IMAGE in .env}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - '${POSTGRES_PORT:?Set POSTGRES_PORT in .env}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  localstack:
+    image: ${LOCALSTACK_IMAGE:?Set LOCALSTACK_IMAGE in .env}
+    environment:
+      <<: *localstack-credentials
+      SERVICES: sqs
+      DEBUG: ${LOCALSTACK_DEBUG:?Set LOCALSTACK_DEBUG in .env}
+      PERSISTENCE: ${LOCALSTACK_PERSISTENCE:?Set LOCALSTACK_PERSISTENCE in .env}
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
+    ports:
+      - '${LOCALSTACK_PORT:?Set LOCALSTACK_PORT in .env}:4566'
+    volumes:
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS http://localhost:4566/_localstack/health | grep -Eq '"sqs": "(available|running)"'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  localstack-init:
+    image: ${LOCALSTACK_IMAGE:?Set LOCALSTACK_IMAGE in .env}
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      <<: *localstack-credentials
+      AWS_REGION: ${AWS_REGION:?Set AWS_REGION in .env}
+      AWS_ENDPOINT_URL: ${SQS_ENDPOINT_DOCKER:?Set SQS_ENDPOINT_DOCKER in .env}
+      SQS_COMMAND_QUEUE_NAME: ${SQS_COMMAND_QUEUE_NAME:?Set SQS_COMMAND_QUEUE_NAME in .env}
+      SQS_COMMAND_DLQ_NAME: ${SQS_COMMAND_DLQ_NAME:?Set SQS_COMMAND_DLQ_NAME in .env}
+      SQS_EVENTS_QUEUE_NAME: ${SQS_EVENTS_QUEUE_NAME:?Set SQS_EVENTS_QUEUE_NAME in .env}
+      SQS_COMMAND_MAX_RECEIVE_COUNT: ${SQS_COMMAND_MAX_RECEIVE_COUNT:?Set SQS_COMMAND_MAX_RECEIVE_COUNT in .env}
+    volumes:
+      - ./localstack/init-queues.sh:/usr/local/bin/init-queues.sh:ro
+    entrypoint: ['/bin/sh', '/usr/local/bin/init-queues.sh']
+    restart: 'no'
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+      args:
+        BUN_IMAGE: ${BUN_IMAGE:?Set BUN_IMAGE in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      localstack-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *api-environment
+    ports:
+      - '${API_PORT:?Set API_PORT in .env}:${PORT:?Set PORT in .env}'
+    init: true
+    stop_signal: SIGTERM
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - >-
+          fetch('http://127.0.0.1:' + process.env.PORT + '/health/live')
+          .then((response) => process.exit(response.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  localstack-data:

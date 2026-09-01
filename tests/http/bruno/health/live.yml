@@ -1,0 +1,31 @@
+info:
+  name: Liveness
+  type: http
+  seq: 1
+  tags:
+    - phase-1
+    - smoke
+
+http:
+  method: GET
+  url: '{{baseUrl}}/health/live'
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: '200'
+    - expression: res.body.status
+      operator: eq
+      value: ok
+    - expression: res.body.check
+      operator: eq
+      value: live
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Confirma que o processo da API está vivo. Não consulta dependências externas.
