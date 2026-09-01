@@ -9,6 +9,8 @@ const wagerKinds = [
   WagerTransactionKind.Bet,
   WagerTransactionKind.Win,
   WagerTransactionKind.Loss,
+  WagerTransactionKind.Refund,
+  WagerTransactionKind.Rollback,
 ] as const;
 
 export class CreateWagerTransactionDto {
@@ -35,6 +37,13 @@ export class CreateWagerTransactionDto {
 
   @ApiProperty({ type: () => MoneyDto, example: { amount: '25.00', currency: 'BRL' } })
   money!: MoneyDto;
+
+  @ApiPropertyOptional({
+    example: 'bet-transaction-123',
+    description: 'Provider external id of the transaction being referenced or reversed.',
+    maxLength: 255,
+  })
+  referenceExternalTransactionId?: string;
 }
 
 export class WagerTransactionSubmissionDto {
@@ -154,6 +163,7 @@ export const createWagerTransactionSchema = z.strictObject({
     amount: z.string(),
     currency: z.string(),
   }),
+  referenceExternalTransactionId: z.string().min(1).max(255).optional(),
 });
 
 export const wagerTransactionIdParamsSchema = z.strictObject({

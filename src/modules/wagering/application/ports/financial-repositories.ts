@@ -2,7 +2,7 @@ import type { InboxMessage } from '../../domain/inbox';
 import type { WalletLedgerEntry } from '../../domain/ledger';
 import type { OutboxMessage } from '../../domain/outbox';
 import type { Wallet } from '../../domain/wallet';
-import type { WagerTransaction } from '../../domain/wager-transaction';
+import type { WagerTransaction, WagerTransactionKind } from '../../domain/wager-transaction';
 
 export interface WalletRepositoryPort {
   findById(id: string): Promise<Wallet | null>;
@@ -21,6 +21,10 @@ export interface WagerTransactionRepositoryPort {
   findByProviderAndIdempotencyKey(
     providerId: string,
     idempotencyKey: string,
+  ): Promise<WagerTransaction | null>;
+  findProcessedReversal(
+    referenceTransactionId: string,
+    kind: WagerTransactionKind.Refund | WagerTransactionKind.Rollback,
   ): Promise<WagerTransaction | null>;
   insert(transaction: WagerTransaction): Promise<WagerTransaction>;
   /** Inserts atomically and returns false when a unique business key already exists. */

@@ -8,7 +8,11 @@ import type {
 } from '../domain/wager-transaction';
 
 export type HttpWagerTransactionKind =
-  WagerTransactionKind.Bet | WagerTransactionKind.Win | WagerTransactionKind.Loss;
+  | WagerTransactionKind.Bet
+  | WagerTransactionKind.Win
+  | WagerTransactionKind.Loss
+  | WagerTransactionKind.Refund
+  | WagerTransactionKind.Rollback;
 
 export interface ProcessWagerTransactionInput {
   readonly providerId: string;
@@ -20,6 +24,7 @@ export interface ProcessWagerTransactionInput {
   readonly gameId: string;
   readonly kind: HttpWagerTransactionKind;
   readonly money: MoneyProps;
+  readonly referenceExternalTransactionId?: string;
   readonly correlationId?: string;
   readonly causationId?: string;
 }

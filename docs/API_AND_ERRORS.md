@@ -245,12 +245,18 @@ O mesmo `ErrorResponseDto` atende validação, domínio, conflito e infraestrutu
 módulo adiciona seus códigos ao catálogo e acrescenta somente campos opcionais já
 previstos, como `transactionId` ou `idempotentReplay`. Não criar formatos paralelos.
 
-Na Fase 6, `POST /wagering/transactions` aceita somente `BET`, `WIN` e `LOSS`. A chave
-do header é arbitrada com o par `(providerId, idempotencyKey)` no PostgreSQL e o hash
+Nas Fases 6–7, `POST /wagering/transactions` aceita `BET`, `WIN`, `LOSS`, `REFUND` e
+`ROLLBACK`. `WIN` pode informar uma referência opcional; `REFUND` exige referência de
+`BET`, e `ROLLBACK` exige referência de `BET`, `WIN` ou `REFUND`. A chave do header é
+arbitrada com o par `(providerId, idempotencyKey)` no PostgreSQL e o hash
 SHA-256 usa o payload de negócio canonizado em RFC 8785; header e metadados de
 transporte ficam fora do hash. Uma primeira operação processada retorna `201`, replay
 idêntico retorna `200`, rejeição persistida retorna `422` com `transactionId` e
 `idempotentReplay`, e falha transitória após retry retorna `503` com `Retry-After`.
+
+Quando a referência ainda não existe, a operação é persistida como `PENDING_REFERENCE`,
+emite `WagerTransactionPendingReference` pela outbox e retorna `202`. Uma nova
+submissão idêntica pode resolver a pendência depois que a referência for confirmada.
 
 `GET /wagering/transactions/:transactionId` e
 `GET /providers/:providerId/wagering/transactions/:externalTransactionId` expõem um

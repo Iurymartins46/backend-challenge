@@ -12,6 +12,7 @@ export interface WagerBusinessPayload {
   readonly gameId: string;
   readonly kind: WagerTransactionKind;
   readonly money: MoneyProps;
+  readonly referenceExternalTransactionId?: string;
 }
 
 type JsonValue =
@@ -74,6 +75,9 @@ export function canonicalizeWagerPayload(payload: WagerBusinessPayload): string 
       amount: payload.money.amount,
       currency: payload.money.currency,
     },
+    ...(payload.referenceExternalTransactionId === undefined
+      ? {}
+      : { referenceExternalTransactionId: payload.referenceExternalTransactionId }),
   });
 }
 

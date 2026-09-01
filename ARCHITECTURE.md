@@ -4,7 +4,8 @@
 > consistência e evolução do sistema. Detalhes de implementação ficam em `docs/`.
 > O bootstrap da Fase 1, o domínio puro da Fase 3, a persistência da Fase 4, a
 > vertical HTTP de wallet/ledger e o processamento HTTP síncrono de BET/WIN/LOSS da
-> Fase 6 já existem; SQS e referências fora de ordem permanecem nas fases seguintes.
+> Fase 6 e de REFUND/ROLLBACK da Fase 7 já existem; SQS e o worker agendado de
+> referências permanecem nas fases seguintes.
 
 ## 1. Objetivo arquitetural
 
@@ -111,9 +112,11 @@ Detalhes: [docs/MESSAGING.md](docs/MESSAGING.md).
 ### 4.6 Referências fora de ordem
 
 Referência ausente é persistida como `PENDING_REFERENCE`, não tratada como falha do
-transporte. Um worker com backoff consulta registros vencidos, obtém o mesmo lock da
-wallet e reutiliza o processamento financeiro. Limite ou TTL esgotado produz rejeição
-auditável e evento correspondente.
+transporte. O fluxo síncrono da Fase 7 revalida a referência depois do lock da wallet e
+permite que uma nova submissão idempotente conclua a pendência; o worker da Fase 10
+consultará registros vencidos com backoff, obterá o mesmo lock da wallet e reutilizará o
+processamento financeiro. Limite ou TTL esgotado produz rejeição auditável e evento
+correspondente.
 
 ### 4.7 Ledger e garantias no schema
 

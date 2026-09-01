@@ -128,6 +128,72 @@ integration('wagering HTTP API', () => {
       firstBody.transactionId,
     );
   });
+
+  test('accepts a pending REFUND and resolves it after the referenced BET arrives', async () => {
+    if (app === undefined) {
+      throw new Error('The HTTP application was not initialized.');
+    }
+
+    const playerId = randomUUID();
+    const walletResponse = await app.inject({
+      method: 'POST',
+      url: '/wallets',
+      payload: {
+        playerId,
+        initialBalance: { amount: '100.00', currency: 'BRL' },
+      },
+    });
+    const wallet = walletResponse.json<{ id: string }>();
+    const providerId = `http-phase7-provider-${randomUUID()}`;
+    const refundPayload = {
+      providerId,
+      externalTransactionId: 'http-refund-late',
+      playerId,
+      walletId: wallet.id,
+      roundId: 'http-phase7-round',
+      gameId: 'http-phase7-game',
+      kind: 'REFUND',
+      money: { amount: '25.00', currency: 'BRL' },
+      referenceExternalTransactionId: 'http-bet-late',
+    };
+
+    const pending = await app.inject({
+      method: 'POST',
+      url: '/wagering/transactions',
+      headers: { 'idempotency-key': 'http-refund-late-key' },
+      payload: refundPayload,
+    });
+    expect(pending.statusCode).toBe(202);
+    expect(pending.json<{ status: string; idempotentReplay: boolean }>()).toMatchObject({
+      status: 'PENDING_REFERENCE',
+      idempotentReplay: false,
+    });
+
+    const bet = await app.inject({
+      method: 'POST',
+      url: '/wagering/transactions',
+      headers: { 'idempotency-key': 'http-bet-late-key' },
+      payload: {
+        ...refundPayload,
+        externalTransactionId: 'http-bet-late',
+        kind: 'BET',
+        referenceExternalTransactionId: undefined,
+      },
+    });
+    expect(bet.statusCode).toBe(201);
+
+    const resolved = await app.inject({
+      method: 'POST',
+      url: '/wagering/transactions',
+      headers: { 'idempotency-key': 'http-refund-late-key' },
+      payload: refundPayload,
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json<{ status: string; idempotentReplay: boolean }>()).toMatchObject({
+      status: 'PROCESSED',
+      idempotentReplay: true,
+    });
+  });
 });
 
 if (!runRealIntegration) {
