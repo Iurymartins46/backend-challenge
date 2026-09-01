@@ -17,6 +17,9 @@ export const ErrorCode = {
   WagerReversalNegativeBalance: 'error.wager.reversal_negative_balance',
   WagerReferenceNotFound: 'error.wager.reference_not_found',
   WagerReferenceAmountMismatch: 'error.wager.reference_amount_mismatch',
+  WagerReferenceInvalidKind: 'error.wager.reference_invalid_kind',
+  WagerReferenceContextMismatch: 'error.wager.reference_context_mismatch',
+  WagerReversalAlreadyProcessed: 'error.wager.reversal_already_processed',
   InfrastructureDependencyUnavailable: 'error.infrastructure.dependency_unavailable',
   InfrastructureInternalError: 'error.infrastructure.internal_error',
 } as const;
@@ -119,6 +122,21 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorCodeDescription>> = 
     status: 422,
     meaning: 'The reversal amount differs from the referenced transaction.',
     clientAction: 'Correct the reversal amount.',
+  },
+  [ErrorCode.WagerReferenceInvalidKind]: {
+    status: 422,
+    meaning: 'The referenced transaction kind is not valid for this operation.',
+    clientAction: 'Reference a transaction with a supported kind.',
+  },
+  [ErrorCode.WagerReferenceContextMismatch]: {
+    status: 422,
+    meaning: 'The referenced transaction belongs to another wagering context.',
+    clientAction: 'Use a reference from the same provider, player, wallet, round and currency.',
+  },
+  [ErrorCode.WagerReversalAlreadyProcessed]: {
+    status: 422,
+    meaning: 'This reference was already reversed by the same operation type.',
+    clientAction: 'Do not submit the same reversal again.',
   },
   [ErrorCode.InfrastructureDependencyUnavailable]: {
     status: 503,

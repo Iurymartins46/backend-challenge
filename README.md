@@ -4,10 +4,11 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fase 1 implementada. A aplicação NestJS, configuração, telemetria,
-> health, Swagger, PostgreSQL/SQS e Compose estão preparados;
-> o domínio financeiro ainda não foi implementado. O enunciado original foi preservado
-> em [docs/CHALLENGE.md](docs/CHALLENGE.md).
+> **Estado atual:** Fases 1–3 implementadas. A aplicação NestJS, configuração,
+> telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados, e o domínio
+> puro de wallet, transações, ledger, inbox/outbox e eventos está implementado;
+> persistência financeira e processamento HTTP/SQS entram nas fases seguintes. O
+> enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
 

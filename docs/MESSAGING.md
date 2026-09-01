@@ -47,3 +47,16 @@ exponencial com jitter, teto, limite/TTL, clock injetável e seleção concorren
 - `WagerTransactionRejected`;
 - `WalletBalanceChanged` somente se o saldo mudar;
 - `WagerTransactionPendingReference` na primeira entrada em espera.
+
+## Códigos de falha do domínio
+
+As transições rejeitadas carregam códigos estáveis e não dependem do texto da
+mensagem: `error.wager.insufficient_funds` para BET sem saldo,
+`error.wager.reversal_negative_balance` para reversão que deixaria saldo negativo,
+`error.wager.reference_not_found` para referência ausente,
+`error.wager.reference_amount_mismatch` para valor divergente,
+`error.wager.reference_invalid_kind` para tipo incompatível,
+`error.wager.reference_context_mismatch` para provider/player/wallet/rodada/jogo/moeda
+divergentes e `error.wager.reversal_already_processed` para duplicidade de reversão.
+Falhas de infraestrutura permanentes usam `error.infrastructure.internal_error` ou
+`error.infrastructure.dependency_unavailable` conforme a classificação do adapter.
