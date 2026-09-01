@@ -9,6 +9,8 @@ export interface RawEnvironment {
   HOST?: unknown;
   LOG_LEVEL?: unknown;
   DATABASE_URL?: unknown;
+  DATABASE_LOCK_TIMEOUT_MS?: unknown;
+  DATABASE_STATEMENT_TIMEOUT_MS?: unknown;
   AWS_REGION?: unknown;
   AWS_ACCESS_KEY_ID?: unknown;
   AWS_SECRET_ACCESS_KEY?: unknown;
@@ -30,6 +32,8 @@ export interface ValidatedEnvironment {
   HOST: string;
   LOG_LEVEL: LogLevel;
   DATABASE_URL: string;
+  DATABASE_LOCK_TIMEOUT_MS: number;
+  DATABASE_STATEMENT_TIMEOUT_MS: number;
   AWS_REGION: string;
   AWS_ACCESS_KEY_ID: string;
   AWS_SECRET_ACCESS_KEY: string;
@@ -51,6 +55,8 @@ const defaults = {
   HOST: '0.0.0.0',
   LOG_LEVEL: 'info',
   DATABASE_URL: 'postgres://wagering:wagering@localhost:5432/wagering',
+  DATABASE_LOCK_TIMEOUT_MS: '5000',
+  DATABASE_STATEMENT_TIMEOUT_MS: '30000',
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'test',
   AWS_SECRET_ACCESS_KEY: 'test',
@@ -101,6 +107,15 @@ function parseUrl(value: string, key: string, errors: string[]): string {
   }
 }
 
+function parsePositiveInteger(value: string, key: string, errors: string[]): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    errors.push(`${key} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
 function parseFifoQueueName(value: string, key: string, errors: string[]): string {
   if (!/^[A-Za-z0-9_-]{1,75}\.fifo$/.test(value)) {
     errors.push(`${key} must be a valid FIFO queue name ending in .fifo`);
@@ -132,6 +147,16 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
   const databaseUrl = parseUrl(
     valueOrDefault(raw.DATABASE_URL, 'DATABASE_URL'),
     'DATABASE_URL',
+    errors,
+  );
+  const databaseLockTimeoutMs = parsePositiveInteger(
+    valueOrDefault(raw.DATABASE_LOCK_TIMEOUT_MS, 'DATABASE_LOCK_TIMEOUT_MS'),
+    'DATABASE_LOCK_TIMEOUT_MS',
+    errors,
+  );
+  const databaseStatementTimeoutMs = parsePositiveInteger(
+    valueOrDefault(raw.DATABASE_STATEMENT_TIMEOUT_MS, 'DATABASE_STATEMENT_TIMEOUT_MS'),
+    'DATABASE_STATEMENT_TIMEOUT_MS',
     errors,
   );
   const sqsEndpoint = parseUrl(
@@ -190,6 +215,8 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     HOST: valueOrDefault(raw.HOST, 'HOST'),
     LOG_LEVEL: logLevel as LogLevel,
     DATABASE_URL: databaseUrl,
+    DATABASE_LOCK_TIMEOUT_MS: databaseLockTimeoutMs,
+    DATABASE_STATEMENT_TIMEOUT_MS: databaseStatementTimeoutMs,
     AWS_REGION: valueOrDefault(raw.AWS_REGION, 'AWS_REGION'),
     AWS_ACCESS_KEY_ID: valueOrDefault(raw.AWS_ACCESS_KEY_ID, 'AWS_ACCESS_KEY_ID'),
     AWS_SECRET_ACCESS_KEY: valueOrDefault(raw.AWS_SECRET_ACCESS_KEY, 'AWS_SECRET_ACCESS_KEY'),

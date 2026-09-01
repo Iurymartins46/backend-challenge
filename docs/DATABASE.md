@@ -46,6 +46,16 @@
 O `FinancialUnitOfWork` cria repositories presos ao `EntityManager` transacional. Wallet,
 transaction, ledger, inbox e outbox confirmam ou sofrem rollback juntos.
 
+Na implementação TypeORM, `FinancialUnitOfWork.transaction()` cria um UoW novo a partir do
+manager entregue pelo callback transacional. Os adapters não resolvem o manager global.
+Os timeouts de sessão são configurados por `DATABASE_LOCK_TIMEOUT_MS` (padrão `5000`) e
+`DATABASE_STATEMENT_TIMEOUT_MS` (padrão `30000`) via opções do driver PostgreSQL.
+
+As colunas monetárias `balance_minor`, `amount_minor`, `balance_before_minor`,
+`balance_after_minor` e `result_balance_minor` são `BIGINT` e ficam tipadas como `string`
+nas entidades TypeORM. Os mappers usam `BigInt` diretamente e reidratam `Money` sem
+passar por `number`.
+
 O lock pessimista é sempre adquirido por wallet e em ordem consistente. Seletores de
 workers usam `FOR UPDATE SKIP LOCKED`, sem lock global.
 

@@ -4,10 +4,10 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–3 implementadas. A aplicação NestJS, configuração,
-> telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados, e o domínio
-> puro de wallet, transações, ledger, inbox/outbox e eventos está implementado;
-> persistência financeira e processamento HTTP/SQS entram nas fases seguintes. O
+> **Estado atual:** Fases 1–4 implementadas. A aplicação NestJS, configuração,
+> telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
+> puro e a persistência TypeORM de wallet, transações, ledger, inbox/outbox e eventos
+> estão implementados. Processamento HTTP/SQS entra nas fases seguintes. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -53,8 +53,8 @@ externa e mantém o setup reproduzível. Para testar uma imagem atual autenticad
 versione o token. Consulte a
 [documentação de autenticação do LocalStack](https://docs.localstack.cloud/aws/getting-started/auth-token/).
 
-A API responde em `http://localhost:3000`. As migrations financeiras entram na Fase 4;
-os comandos já estão preparados, mas ainda não existe schema financeiro para migrar.
+A API responde em `http://localhost:3000`. A migration financeira da Fase 4 cria o
+schema reversível; os comandos abaixo executam e revertem esse schema no PostgreSQL.
 
 ## Migrations TypeORM
 
@@ -138,7 +138,10 @@ executa formatação em modo somente leitura, lint, typecheck, todos os testes, 
 TypeScript e o smoke test de compatibilidade dos pacotes. Os comandos individuais
 continuam disponíveis quando for necessário isolar uma falha.
 
-Os cenários financeiros de integração e concorrência começam nas fases posteriores.
+Na Fase 4, a integração opt-in contra PostgreSQL real valida migration, constraints,
+round-trip, rollback atômico e a UoW. Execute-a com
+`RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/financial-persistence.spec.ts`.
+Os cenários de processamento financeiro e concorrência começam nas fases posteriores.
 Na Fase 1, PostgreSQL 18.6 e LocalStack reais são usados para validar startup, health,
 Swagger e filas; os testes automatizados cobrem configuração, erros, auth no-op e o span
 HTTP básico.
