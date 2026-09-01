@@ -4,10 +4,10 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–4 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–5 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
-> puro e a persistência TypeORM de wallet, transações, ledger, inbox/outbox e eventos
-> estão implementados. Processamento HTTP/SQS entra nas fases seguintes. O
+> puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
+> processamento HTTP/SQS de apostas entra nas fases seguintes. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -141,7 +141,9 @@ continuam disponíveis quando for necessário isolar uma falha.
 Na Fase 4, a integração opt-in contra PostgreSQL real valida migration, constraints,
 round-trip, rollback atômico e a UoW. Execute-a com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/financial-persistence.spec.ts`.
-Os cenários de processamento financeiro e concorrência começam nas fases posteriores.
+Essa mesma suíte também valida a abertura transacional de wallets e a paginação do
+ledger da Fase 5. Os cenários de processamento financeiro e concorrência começam nas
+fases posteriores.
 Na Fase 1, PostgreSQL 18.6 e LocalStack reais são usados para validar startup, health,
 Swagger e filas; os testes automatizados cobrem configuração, erros, auth no-op e o span
 HTTP básico.
@@ -154,9 +156,10 @@ adotado quando o linter declarar compatibilidade, sem desativar o lint tipado.
 
 A coleção OpenCollection versionada fica em `tests/http/bruno`. No Bruno 3+, use
 **Open Collection** e selecione essa pasta (a que contém `opencollection.yml`), depois
-selecione o ambiente `local`. Ela cobre health, Swagger e o envelope uniforme de erro
-da Fase 1. Rotas adicionadas nas próximas fases devem vir acompanhadas dos respectivos
-cenários manuais na mesma coleção; o Codex pode criá-los e mantê-los junto com o código.
+selecione o ambiente `local`. Ela cobre health, Swagger, o envelope uniforme de erro e
+as rotas de wallet da Fase 5. Rotas adicionadas nas próximas fases devem vir
+acompanhadas dos respectivos cenários manuais na mesma coleção; o Codex pode criá-los e
+mantê-los junto com o código.
 
 O arquivo `.env` da raiz continua sendo exclusivo do Compose/aplicação. Não coloque
 segredos nos YAMLs do Bruno; quando uma rota futura precisar de credencial, mantenha o

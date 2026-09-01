@@ -1,0 +1,29 @@
+info:
+  name: Consultar wallet
+  type: http
+  seq: 2
+  tags:
+    - phase-5
+    - wallet
+
+http:
+  method: GET
+  url: '{{baseUrl}}/wallets/{{walletId}}'
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("consulta saldo da wallet", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.balance.amount).to.be.a("string");
+          expect(res.body.balance.currency).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Consulte a wallet criada pelo cenário anterior usando a variável walletId.

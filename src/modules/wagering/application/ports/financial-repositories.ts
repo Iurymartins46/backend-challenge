@@ -30,8 +30,24 @@ export interface WalletLedgerRepositoryPort {
   findById(id: string): Promise<WalletLedgerEntry | null>;
   findByTransactionId(transactionId: string): Promise<WalletLedgerEntry | null>;
   findByWalletId(walletId: string): Promise<readonly WalletLedgerEntry[]>;
+  findByWalletIdPage(walletId: string, query: WalletLedgerPageQuery): Promise<WalletLedgerPage>;
   insert(entry: WalletLedgerEntry): Promise<WalletLedgerEntry>;
   save(entry: WalletLedgerEntry): Promise<WalletLedgerEntry>;
+}
+
+export interface WalletLedgerCursorPosition {
+  readonly createdAt: Date;
+  readonly id: string;
+}
+
+export interface WalletLedgerPageQuery {
+  readonly after?: WalletLedgerCursorPosition;
+  readonly limit: number;
+}
+
+export interface WalletLedgerPage {
+  readonly entries: readonly WalletLedgerEntry[];
+  readonly hasMore: boolean;
 }
 
 export interface InboxMessageRepositoryPort {

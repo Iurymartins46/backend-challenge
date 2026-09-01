@@ -14,6 +14,12 @@ import { MoneyDto } from './common/http/money.dto';
 import { correlationMiddleware } from './infrastructure/logging/correlation.middleware';
 import { httpTracingMiddleware, shutdownTelemetry } from './infrastructure/telemetry';
 import { HealthResponseDto } from './modules/health/health.dto';
+import {
+  CreateWalletDto,
+  WalletLedgerEntryDto,
+  WalletLedgerResponseDto,
+  WalletResponseDto,
+} from './modules/wallet/presentation/wallet.dto';
 
 export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
@@ -37,7 +43,16 @@ export async function bootstrap(): Promise<void> {
       .addTag('health')
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig, {
-      extraModels: [ErrorResponseDto, ErrorItemDto, MoneyDto, HealthResponseDto],
+      extraModels: [
+        ErrorResponseDto,
+        ErrorItemDto,
+        MoneyDto,
+        HealthResponseDto,
+        CreateWalletDto,
+        WalletResponseDto,
+        WalletLedgerEntryDto,
+        WalletLedgerResponseDto,
+      ],
     });
     SwaggerModule.setup('docs', app, document, {
       jsonDocumentUrl: 'docs-json',

@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 
 import { FinancialUnitOfWork } from '../../src/infrastructure/database/financial-unit-of-work';
 import dataSource from '../../src/infrastructure/database/data-source';
+import type {
+  FinancialUnitOfWorkPort,
+  OutboxMessageRepositoryPort,
+} from '../../src/modules/wagering/application/ports';
 import {
   InboxMessage,
   Money,
@@ -14,7 +18,15 @@ import {
   Wallet,
   WalletLedgerEntry,
   LedgerDirection,
+  RandomIdGenerator,
+  SystemClock,
+  type IdGenerator,
 } from '../../src/modules/wagering/domain';
+import {
+  CreateWalletUseCase,
+  decodeLedgerCursor,
+  ListWalletLedgerUseCase,
+} from '../../src/modules/wallet/application';
 
 const runRealIntegration = process.env.RUN_REAL_INTEGRATION_TESTS === 'true';
 const integration = runRealIntegration ? describe : describe.skip;
@@ -291,6 +303,172 @@ integration('financial PostgreSQL persistence', () => {
       money: money('0.01'),
     });
     await expectRejected(unitOfWork.transactions.insert(duplicateExternal));
+  });
+
+  test('creates zero and positive wallets with the Phase 5 persistence contract', async () => {
+    const unitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const useCase = new CreateWalletUseCase(unitOfWork, new RandomIdGenerator(), new SystemClock());
+    const zeroWallet = await useCase.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '0.00', currency: 'BRL' },
+    });
+    const positiveWallet = await useCase.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '1000.00', currency: 'BRL' },
+    });
+
+    const counts = await dataSource.manager.query<
+      Array<{ transactions: string; ledger: string; outbox: string }>
+    >(
+      `SELECT
+         (SELECT count(*)::text FROM wager_transactions WHERE wallet_id = $1) AS transactions,
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1) AS ledger,
+         (SELECT count(*)::text FROM outbox_messages WHERE aggregate_id = $1) AS outbox
+       UNION ALL
+       SELECT
+         (SELECT count(*)::text FROM wager_transactions WHERE wallet_id = $2),
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $2),
+         (SELECT count(*)::text FROM outbox_messages WHERE aggregate_id = $2)`,
+      [zeroWallet.id, positiveWallet.id],
+    );
+
+    expect(counts).toEqual([
+      { transactions: '0', ledger: '0', outbox: '0' },
+      { transactions: '1', ledger: '1', outbox: '1' },
+    ]);
+    expect(positiveWallet.balance).toEqual({ amount: '1000.00', currency: 'BRL' });
+    expect(positiveWallet.version).toBe(1);
+  });
+
+  test('rolls back every positive-wallet write when the outbox insert fails', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const failingOutbox: OutboxMessageRepositoryPort = {
+      findById: (...args) => rootUnitOfWork.outbox.findById(...args),
+      insert: () => Promise.reject(new Error('intentional outbox failure')),
+      save: (...args) => rootUnitOfWork.outbox.save(...args),
+    };
+    const failingUnitOfWork: FinancialUnitOfWorkPort = {
+      wallets: rootUnitOfWork.wallets,
+      transactions: rootUnitOfWork.transactions,
+      ledger: rootUnitOfWork.ledger,
+      inbox: rootUnitOfWork.inbox,
+      outbox: failingOutbox,
+      transaction: (callback) =>
+        rootUnitOfWork.transaction(async (transactionalUnitOfWork) =>
+          callback({ ...transactionalUnitOfWork, outbox: failingOutbox }),
+        ),
+    };
+    const walletId = randomUUID();
+    const openingTransactionId = randomUUID();
+    const openingLedgerId = randomUUID();
+    const generatedIds = [walletId, openingTransactionId, openingLedgerId];
+    let generatedIdIndex = 0;
+    const idGenerator: IdGenerator = {
+      next: () => {
+        const id = generatedIds[generatedIdIndex];
+        generatedIdIndex += 1;
+        if (id === undefined) {
+          throw new Error('No test id available.');
+        }
+
+        return id;
+      },
+    };
+    const useCase = new CreateWalletUseCase(failingUnitOfWork, idGenerator, new SystemClock());
+
+    await expectRejected(
+      useCase.execute({
+        playerId: randomUUID(),
+        initialBalance: { amount: '1.00', currency: 'BRL' },
+      }),
+      'intentional outbox failure',
+    );
+
+    expect(await rootUnitOfWork.wallets.findById(walletId)).toBeNull();
+    const rows = await dataSource.manager.query<
+      Array<{ wallets: string; transactions: string; ledger: string; outbox: string }>
+    >(
+      `SELECT
+         (SELECT count(*)::text FROM wallets WHERE id = $1) AS wallets,
+         (SELECT count(*)::text FROM wager_transactions WHERE wallet_id = $1) AS transactions,
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1) AS ledger,
+         (SELECT count(*)::text FROM outbox_messages WHERE aggregate_id = $1) AS outbox`,
+      [walletId],
+    );
+    expect(rows).toEqual([{ wallets: '0', transactions: '0', ledger: '0', outbox: '0' }]);
+  });
+
+  test('paginates the ledger without duplicates when timestamps tie', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const useCase = new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    );
+    const wallet = await useCase.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '1.00', currency: 'BRL' },
+    });
+    const createdAt = new Date('2026-09-01T12:00:00.000Z');
+
+    await rootUnitOfWork.transaction(async (unitOfWork) => {
+      const persistedWallet = await unitOfWork.wallets.findByIdForUpdate(wallet.id);
+      if (persistedWallet === null) {
+        throw new Error('Wallet was not created.');
+      }
+
+      for (const [index, amount] of (['2.00', '3.00'] as const).entries()) {
+        const change = persistedWallet.credit(money(amount), createdAt);
+        const transaction = WagerTransaction.create({
+          id: randomUUID(),
+          providerId: `phase5-pagination-${wallet.id}`,
+          externalTransactionId: `external-${index}-${wallet.id}`,
+          idempotencyKey: `key-${index}-${wallet.id}`,
+          payloadHash: `${index}`.repeat(64),
+          walletId: persistedWallet.id,
+          playerId: persistedWallet.playerId,
+          roundId: 'phase5-pagination-round',
+          gameId: 'phase5-pagination-game',
+          kind: WagerTransactionKind.Bet,
+          money: money(amount),
+          createdAt,
+        });
+        transaction.markProcessed(undefined, createdAt);
+        transaction.recordResultSnapshot(persistedWallet.balance, persistedWallet.version);
+        await unitOfWork.transactions.insert(transaction);
+        await unitOfWork.ledger.insert(
+          WalletLedgerEntry.create({
+            id: randomUUID(),
+            walletId: persistedWallet.id,
+            transactionId: transaction.id,
+            direction: change.direction,
+            money: change.money,
+            balanceBefore: change.balanceBefore,
+            balanceAfter: change.balanceAfter,
+            createdAt,
+          }),
+        );
+      }
+
+      await unitOfWork.wallets.save(persistedWallet);
+    });
+
+    const ledgerUseCase = new ListWalletLedgerUseCase(rootUnitOfWork);
+    const seenEntryIds: string[] = [];
+    let cursor: string | undefined;
+    for (let pageNumber = 0; pageNumber < 3; pageNumber += 1) {
+      const page = await ledgerUseCase.execute({
+        walletId: wallet.id,
+        after: cursor === undefined ? undefined : decodeLedgerCursor(cursor),
+        limit: 1,
+      });
+      seenEntryIds.push(...page.entries.map((entry) => entry.id));
+      cursor = page.nextCursor ?? undefined;
+    }
+
+    expect(seenEntryIds).toHaveLength(3);
+    expect(new Set(seenEntryIds).size).toBe(3);
+    expect(cursor).toBeUndefined();
   });
 });
 

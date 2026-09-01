@@ -1,6 +1,10 @@
 import { type EntityManager, type Repository } from 'typeorm';
 
-import type { WalletLedgerRepositoryPort } from '../../../modules/wagering/application/ports';
+import type {
+  WalletLedgerPage,
+  WalletLedgerPageQuery,
+  WalletLedgerRepositoryPort,
+} from '../../../modules/wagering/application/ports';
 import type { WalletLedgerEntry } from '../../../modules/wagering/domain/ledger';
 import { WalletLedgerEntryEntity } from '../entities/wallet-ledger-entry.entity';
 import { WalletLedgerEntryMapper } from '../mappers/wallet-ledger-entry.mapper';
@@ -28,6 +32,34 @@ export class TypeOrmWalletLedgerRepository implements WalletLedgerRepositoryPort
       order: { createdAt: 'ASC', id: 'ASC' },
     });
     return entities.map((entity) => WalletLedgerEntryMapper.toDomain(entity));
+  }
+
+  async findByWalletIdPage(
+    walletId: string,
+    query: WalletLedgerPageQuery,
+  ): Promise<WalletLedgerPage> {
+    const builder = this.repository
+      .createQueryBuilder('ledger')
+      .where('ledger.walletId = :walletId', { walletId })
+      .orderBy('ledger.createdAt', 'ASC')
+      .addOrderBy('ledger.id', 'ASC')
+      .take(query.limit + 1);
+
+    if (query.after !== undefined) {
+      builder.andWhere('(ledger.createdAt, ledger.id) > (:afterCreatedAt, :afterId)', {
+        afterCreatedAt: query.after.createdAt,
+        afterId: query.after.id,
+      });
+    }
+
+    const entities = await builder.getMany();
+    const hasMore = entities.length > query.limit;
+    const pageEntities = hasMore ? entities.slice(0, query.limit) : entities;
+
+    return {
+      entries: pageEntities.map((entity) => WalletLedgerEntryMapper.toDomain(entity)),
+      hasMore,
+    };
   }
 
   async insert(entry: WalletLedgerEntry): Promise<WalletLedgerEntry> {

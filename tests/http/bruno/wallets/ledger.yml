@@ -1,0 +1,34 @@
+info:
+  name: Consultar ledger da wallet
+  type: http
+  seq: 3
+  tags:
+    - phase-5
+    - wallet
+
+http:
+  method: GET
+  url: '{{baseUrl}}/wallets/{{walletId}}/ledger?limit=50'
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("consulta ledger paginado", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.entries).to.be.an("array");
+          expect(res.body.nextCursor === null || typeof res.body.nextCursor === "string").to.equal(true);
+          res.body.entries.forEach(function(entry) {
+            expect(entry.money.amount).to.be.a("string");
+            expect(entry.balanceBefore.amount).to.be.a("string");
+            expect(entry.balanceAfter.amount).to.be.a("string");
+          });
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: O cursor retornado pode ser enviado novamente no parâmetro cursor para a próxima página.
