@@ -2,7 +2,8 @@
 
 > Este documento contém somente as decisões arquiteturais que afetam correção,
 > consistência e evolução do sistema. Detalhes de implementação ficam em `docs/`.
-> Enquanto o código não existir, ele descreve a arquitetura-alvo.
+> O bootstrap da Fase 1 já existe; o restante descreve a arquitetura-alvo para as fases
+> de domínio e persistência.
 
 ## 1. Objetivo arquitetural
 

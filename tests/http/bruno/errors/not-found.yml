@@ -1,0 +1,32 @@
+info:
+  name: Rota inexistente
+  type: http
+  seq: 1
+  tags:
+    - phase-1
+    - errors
+
+http:
+  method: GET
+  url: '{{baseUrl}}/route-that-does-not-exist'
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("normaliza erros 404", function() {
+          expect(res.status).to.equal(404);
+          expect(res.body.status).to.equal(404);
+          expect(res.body.title).to.equal("Resource not found");
+          expect(res.body.traceId).to.be.a("string").and.not.be.empty;
+          expect(res.body.errors).to.be.an("array").and.not.be.empty;
+          expect(res.body.errors[0].code).to.equal("error.request.not_found");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Confirma que uma rota desconhecida não devolve o formato padrão do framework.

@@ -45,3 +45,20 @@ wallet.balance_minor == SUM(CREDIT amount_minor) - SUM(DEBIT amount_minor)
 
 Também verifica contagens de transactions, ledger, inbox e outbox para detectar efeitos
 duplicados que uma simples comparação de saldo poderia esconder.
+
+## Teste manual de HTTP
+
+A coleção OpenCollection para Bruno fica em `tests/http/bruno`. Abra exatamente esse
+diretório no Bruno 3+ e selecione o ambiente `local`. Os arquivos da coleção são
+versionados e fazem parte da entrega de cada rota, enquanto valores secretos permanecem
+fora do Git.
+
+Na Fase 1, os cenários manuais cobrem:
+
+- liveness e readiness;
+- rejeição de query inválida com o envelope uniforme de erro;
+- normalização de rota inexistente;
+- publicação do OpenAPI e presença das rotas de health.
+
+Esses cenários auxiliam a exploração manual, mas não substituem os testes automatizados
+nem as provas contra PostgreSQL e LocalStack reais.
