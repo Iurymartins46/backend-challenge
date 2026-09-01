@@ -16,11 +16,14 @@ PostgreSQL e LocalStack reais executados por Docker Compose. Cobrir:
 - publishers e workers concorrentes;
 - recuperação após reinício.
 
-Os cenários reais da Fase 4 ficam opt-in para que a suíte padrão não apague dados de um
-banco de desenvolvimento. Com o PostgreSQL do Compose saudável e a migration aplicada,
-execute `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/financial-persistence.spec.ts`.
-O fixture usa identificadores únicos e não tenta remover lançamentos, respeitando o
-trigger append-only do ledger.
+Os cenários reais da Fase 4 ficam opt-in para que a suíte padrão não toque no banco de
+desenvolvimento. `migrations-round-trip.spec.ts` cria um banco PostgreSQL efêmero, prova
+`up/down/up` em schema vazio e o remove ao final. `financial-persistence.spec.ts` usa
+identificadores únicos e não tenta remover lançamentos, respeitando o trigger append-only
+do ledger. `http-wagering-api.spec.ts` exerce o contrato Nest/Fastify com PostgreSQL
+real para criação de wallet, BET, replay, conflito e as duas leituras de transação. Com
+o PostgreSQL do Compose saudável, execute
+`RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`.
 
 ## Concorrência distribuída
 

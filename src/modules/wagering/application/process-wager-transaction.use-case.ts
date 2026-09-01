@@ -102,7 +102,11 @@ export class ProcessWagerTransactionUseCase {
           input.externalTransactionId,
         );
       if (existingByExternal !== null) {
-        throw new ExternalTransactionConflictError();
+        return this.replayByExternalIdOrConflict(
+          existingByExternal,
+          input.idempotencyKey,
+          payloadHash,
+        );
       }
 
       const wallet = await unitOfWork.wallets.findByIdForUpdate(input.walletId);
@@ -130,7 +134,11 @@ export class ProcessWagerTransactionUseCase {
           input.externalTransactionId,
         );
       if (lockedExistingByExternal !== null) {
-        throw new ExternalTransactionConflictError();
+        return this.replayByExternalIdOrConflict(
+          lockedExistingByExternal,
+          input.idempotencyKey,
+          payloadHash,
+        );
       }
 
       const transaction = WagerTransaction.create({
@@ -164,7 +172,11 @@ export class ProcessWagerTransactionUseCase {
             input.externalTransactionId,
           );
         if (concurrentByExternal !== null) {
-          throw new ExternalTransactionConflictError();
+          return this.replayByExternalIdOrConflict(
+            concurrentByExternal,
+            input.idempotencyKey,
+            payloadHash,
+          );
         }
 
         throw new DomainInvariantError('A wager transaction conflict was not recoverable.');
@@ -277,6 +289,18 @@ export class ProcessWagerTransactionUseCase {
     }
 
     return toWagerTransactionSubmissionView(transaction, true);
+  }
+
+  private replayByExternalIdOrConflict(
+    transaction: WagerTransaction,
+    idempotencyKey: string,
+    payloadHash: string,
+  ): WagerTransactionSubmissionView {
+    if (transaction.idempotencyKey === idempotencyKey) {
+      return this.replayOrConflict(transaction, payloadHash);
+    }
+
+    throw new ExternalTransactionConflictError();
   }
 }
 

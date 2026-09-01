@@ -39,6 +39,7 @@ O ambiente local usa PostgreSQL 18.6 e LocalStack Community 4.14.0.
 bun install --frozen-lockfile
 cp .env.example .env
 bun run docker:up:infra
+bun run migration:run
 bun run dev
 ```
 
@@ -140,9 +141,13 @@ executa formatação em modo somente leitura, lint, typecheck, todos os testes, 
 TypeScript e o smoke test de compatibilidade dos pacotes. Os comandos individuais
 continuam disponíveis quando for necessário isolar uma falha.
 
-Na Fase 4, a integração opt-in contra PostgreSQL real valida migration, constraints,
-round-trip, rollback atômico e a UoW. Execute-a com
+Na Fase 4, a integração opt-in contra PostgreSQL real valida a migration em banco
+efêmero (`up/down/up`), constraints, round-trip, rollback atômico e a UoW. Execute-a com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/financial-persistence.spec.ts`.
+Para incluir também a prova isolada de reversibilidade da migration e os contratos HTTP
+de wallet/aposta, execute a pasta inteira:
+`RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`. A suíte cria e remove um
+banco temporário próprio para a migration; ela nunca desmonta o banco de desenvolvimento.
 Essa mesma suíte também valida a abertura transacional de wallets e a paginação do
 ledger da Fase 5. Os cenários de processamento financeiro e concorrência começam nas
 fases posteriores.
