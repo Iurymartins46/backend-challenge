@@ -109,6 +109,13 @@ No Swagger, cada código deve informar:
 | `error.wager.reference_not_found` | 422 | referência não apareceu dentro do limite | enviar/disponibilizar a referência |
 | `error.infrastructure.dependency_unavailable` | 503 | dependência temporariamente indisponível | respeitar `Retry-After` |
 
+As regras de referência também usam os códigos estáveis
+`error.wager.reference_invalid_kind`, `error.wager.reference_context_mismatch` e
+`error.wager.reversal_already_processed`, todos com HTTP 422. O primeiro indica uma
+operação incompatível com o tipo da referência; o segundo indica divergência de
+provider, player, wallet, rodada, jogo ou moeda; o terceiro indica que a mesma
+referência já foi revertida pelo mesmo tipo.
+
 Assim, não é necessário enviar `retryable` em todas as respostas: a regra pertence à
 documentação estável de `errors[].code`. Para indisponibilidade transitória, o header HTTP
 `Retry-After` informa quando repetir.
