@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, test } from 'bun:test';
 
-import { formatExceptionResponse } from '../../src/common/http/exception.filter';
+import { formatExceptionResponse } from '../../src/common/http/exception-response';
 
 describe('global error contract', () => {
   test('always returns a non-empty errors array', () => {
