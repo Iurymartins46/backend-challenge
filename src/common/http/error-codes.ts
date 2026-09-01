@@ -7,6 +7,8 @@ export const ErrorCode = {
   MoneyInvalidFormat: 'error.money.invalid_format',
   MoneyInvalidScale: 'error.money.invalid_scale',
   MoneyInvalidCurrency: 'error.money.invalid_currency',
+  MoneyNegative: 'error.money.negative',
+  MoneyOutOfRange: 'error.money.out_of_range',
   MoneyCurrencyMismatch: 'error.money.currency_mismatch',
   WalletNotFound: 'error.wallet.not_found',
   WalletAlreadyExists: 'error.wallet.already_exists',
@@ -67,6 +69,16 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorCodeDescription>> = 
     status: 400,
     meaning: 'The currency is not a valid ISO-4217 code.',
     clientAction: 'Correct the currency.',
+  },
+  [ErrorCode.MoneyNegative]: {
+    status: 400,
+    meaning: 'The external money contract does not accept negative amounts.',
+    clientAction: 'Send a non-negative amount.',
+  },
+  [ErrorCode.MoneyOutOfRange]: {
+    status: 400,
+    meaning: 'The amount is outside the supported BIGINT range in minor units.',
+    clientAction: 'Send an amount within the supported range.',
   },
   [ErrorCode.MoneyCurrencyMismatch]: {
     status: 422,

@@ -74,6 +74,8 @@ error.request.idempotency_key_required
 error.money.invalid_format
 error.money.invalid_scale
 error.money.invalid_currency
+error.money.negative
+error.money.out_of_range
 error.money.currency_mismatch
 error.wallet.not_found
 error.wallet.already_exists
@@ -100,6 +102,8 @@ No Swagger, cada código deve informar:
 | Código | HTTP | Significado | Ação do cliente |
 |---|---:|---|---|
 | `error.money.invalid_scale` | 400 | amount não possui exatamente duas casas | corrigir payload |
+| `error.money.negative` | 400 | contrato externo não aceita valor negativo | enviar valor não negativo |
+| `error.money.out_of_range` | 400 | amount excede o BIGINT suportado em centavos | corrigir o valor |
 | `error.idempotency.payload_conflict` | 409 | mesma chave foi usada com outro payload | corrigir chave/payload |
 | `error.wager.insufficient_funds` | 422 | saldo insuficiente para a BET | não repetir sem mudança de saldo |
 | `error.wager.reference_not_found` | 422 | referência não apareceu dentro do limite | enviar/disponibilizar a referência |
