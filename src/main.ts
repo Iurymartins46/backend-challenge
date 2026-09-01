@@ -20,6 +20,12 @@ import {
   WalletLedgerResponseDto,
   WalletResponseDto,
 } from './modules/wallet/presentation/wallet.dto';
+import {
+  CreateWagerTransactionDto,
+  WagerTransactionDetailsDto,
+  WagerTransactionRejectedResponseDto,
+  WagerTransactionSubmissionDto,
+} from './modules/wagering/presentation/wagering.dto';
 
 export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
@@ -52,6 +58,10 @@ export async function bootstrap(): Promise<void> {
         WalletResponseDto,
         WalletLedgerEntryDto,
         WalletLedgerResponseDto,
+        CreateWagerTransactionDto,
+        WagerTransactionSubmissionDto,
+        WagerTransactionRejectedResponseDto,
+        WagerTransactionDetailsDto,
       ],
     });
     SwaggerModule.setup('docs', app, document, {

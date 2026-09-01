@@ -27,6 +27,10 @@ import {
   decodeLedgerCursor,
   ListWalletLedgerUseCase,
 } from '../../src/modules/wallet/application';
+import {
+  ProcessWagerTransactionUseCase,
+  type ProcessWagerTransactionInput,
+} from '../../src/modules/wagering/application';
 
 const runRealIntegration = process.env.RUN_REAL_INTEGRATION_TESTS === 'true';
 const integration = runRealIntegration ? describe : describe.skip;
@@ -469,6 +473,402 @@ integration('financial PostgreSQL persistence', () => {
     expect(seenEntryIds).toHaveLength(3);
     expect(new Set(seenEntryIds).size).toBe(3);
     expect(cursor).toBeUndefined();
+  });
+
+  test('replays the original balance snapshot and detects both conflict types', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const wallet = await new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    ).execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const useCase = new ProcessWagerTransactionUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    );
+    const input: ProcessWagerTransactionInput = {
+      providerId: 'phase6-replay-provider',
+      externalTransactionId: `replay-${wallet.id}`,
+      idempotencyKey: `replay-key-${wallet.id}`,
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: 'phase6-replay-round',
+      gameId: 'phase6-replay-game',
+      kind: WagerTransactionKind.Bet,
+      money: { amount: '25.00', currency: 'BRL' },
+    };
+
+    const first = await useCase.execute(input);
+    await useCase.execute({
+      ...input,
+      providerId: 'phase6-replay-provider',
+      externalTransactionId: `replay-second-${wallet.id}`,
+      idempotencyKey: `replay-second-key-${wallet.id}`,
+      money: { amount: '10.00', currency: 'BRL' },
+    });
+    const replay = await useCase.execute(input);
+
+    expect(first.status).toBe(WagerTransactionStatus.Processed);
+    expect(first.idempotentReplay).toBe(false);
+    expect(replay).toEqual({
+      ...first,
+      idempotentReplay: true,
+    });
+    expect(replay.balance).toEqual({ amount: '75.00', currency: 'BRL' });
+
+    await expectRejected(
+      useCase.execute({ ...input, money: { amount: '26.00', currency: 'BRL' } }),
+      'idempotency key was reused',
+    );
+    await expectRejected(
+      useCase.execute({
+        ...input,
+        externalTransactionId: input.externalTransactionId,
+        idempotencyKey: `replay-external-conflict-key-${wallet.id}`,
+      }),
+      'external transaction id was already used',
+    );
+  });
+
+  test('processes 50 identical BET submissions as one debit on real connections', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const wallet = await new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    ).execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const useCase = new ProcessWagerTransactionUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    );
+    const input: ProcessWagerTransactionInput = {
+      providerId: 'phase6-parallel-provider',
+      externalTransactionId: `parallel-${wallet.id}`,
+      idempotencyKey: `parallel-key-${wallet.id}`,
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: 'phase6-parallel-round',
+      gameId: 'phase6-parallel-game',
+      kind: WagerTransactionKind.Bet,
+      money: { amount: '10.00', currency: 'BRL' },
+    };
+
+    const results = await Promise.all(Array.from({ length: 50 }, () => useCase.execute(input)));
+    const reloadedWallet = await rootUnitOfWork.wallets.findById(wallet.id);
+    const counts = await dataSource.manager.query<
+      Array<{ transactions: string; ledger: string; debits: string }>
+    >(
+      `SELECT
+         (SELECT count(*)::text FROM wager_transactions WHERE wallet_id = $1 AND kind = 'BET') AS transactions,
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1 AND direction = 'DEBIT') AS ledger,
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1 AND direction = 'DEBIT' AND amount_minor = 1000) AS debits`,
+      [wallet.id],
+    );
+
+    expect(results.every((result) => result.status === WagerTransactionStatus.Processed)).toBe(
+      true,
+    );
+    expect(new Set(results.map((result) => result.transactionId)).size).toBe(1);
+    expect(results.filter((result) => result.idempotentReplay === false)).toHaveLength(1);
+    expect(reloadedWallet?.balance.toJSON()).toEqual({ amount: '90.00', currency: 'BRL' });
+    expect(counts).toEqual([{ transactions: '1', ledger: '1', debits: '1' }]);
+  });
+
+  test('processes WIN as a credit with a matching ledger and snapshot', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const wallet = await new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    ).execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '10.00', currency: 'BRL' },
+    });
+    const result = await new ProcessWagerTransactionUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    ).execute({
+      providerId: 'phase6-win-provider',
+      externalTransactionId: `win-${wallet.id}`,
+      idempotencyKey: `win-key-${wallet.id}`,
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: 'phase6-win-round',
+      gameId: 'phase6-win-game',
+      kind: WagerTransactionKind.Win,
+      money: { amount: '7.00', currency: 'BRL' },
+    });
+    const reloadedWallet = await rootUnitOfWork.wallets.findById(wallet.id);
+    const rows = await dataSource.manager.query<Array<{ credits: string; version: number }>>(
+      `SELECT
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1 AND direction = 'CREDIT' AND amount_minor = 700) AS credits,
+         version
+       FROM wallets WHERE id = $1`,
+      [wallet.id],
+    );
+
+    expect(result.status).toBe(WagerTransactionStatus.Processed);
+    expect(result.balance).toEqual({ amount: '17.00', currency: 'BRL' });
+    expect(reloadedWallet?.balance.toJSON()).toEqual({ amount: '17.00', currency: 'BRL' });
+    expect(rows).toEqual([{ credits: '1', version: 2 }]);
+  });
+
+  test('serializes two 80 BETs into one processed and one rejected result', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const wallet = await new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    ).execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const useCase = new ProcessWagerTransactionUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    );
+    const results = await Promise.all(
+      (['first', 'second'] as const).map((suffix) =>
+        useCase.execute({
+          providerId: 'phase6-race-provider',
+          externalTransactionId: `race-${suffix}-${wallet.id}`,
+          idempotencyKey: `race-key-${suffix}-${wallet.id}`,
+          playerId: wallet.playerId,
+          walletId: wallet.id,
+          roundId: 'phase6-race-round',
+          gameId: 'phase6-race-game',
+          kind: WagerTransactionKind.Bet,
+          money: { amount: '80.00', currency: 'BRL' },
+        }),
+      ),
+    );
+    const reloadedWallet = await rootUnitOfWork.wallets.findById(wallet.id);
+    const counts = await dataSource.manager.query<Array<{ debits: string; rejected: string }>>(
+      `SELECT
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1 AND direction = 'DEBIT') AS debits,
+         (SELECT count(*)::text FROM wager_transactions WHERE wallet_id = $1 AND status = 'REJECTED') AS rejected`,
+      [wallet.id],
+    );
+
+    expect(
+      results.filter((result) => result.status === WagerTransactionStatus.Processed),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === WagerTransactionStatus.Rejected),
+    ).toHaveLength(1);
+    expect(
+      results.find((result) => result.status === WagerTransactionStatus.Rejected)?.failureCode,
+    ).toBe('error.wager.insufficient_funds');
+    expect(reloadedWallet?.balance.toJSON()).toEqual({ amount: '20.00', currency: 'BRL' });
+    expect(counts).toEqual([{ debits: '1', rejected: '1' }]);
+  });
+
+  test('processes different wallets in parallel and LOSS without a balance movement', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const walletUseCase = new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    );
+    const [walletOne, walletTwo] = await Promise.all([
+      walletUseCase.execute({
+        playerId: randomUUID(),
+        initialBalance: { amount: '50.00', currency: 'BRL' },
+      }),
+      walletUseCase.execute({
+        playerId: randomUUID(),
+        initialBalance: { amount: '50.00', currency: 'BRL' },
+      }),
+    ]);
+    const useCase = new ProcessWagerTransactionUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    );
+    const [betOne, betTwo, loss] = await Promise.all([
+      useCase.execute({
+        providerId: 'phase6-wallets-provider',
+        externalTransactionId: `wallet-one-${walletOne.id}`,
+        idempotencyKey: `wallet-one-key-${walletOne.id}`,
+        playerId: walletOne.playerId,
+        walletId: walletOne.id,
+        roundId: 'phase6-wallets-round',
+        gameId: 'phase6-wallets-game',
+        kind: WagerTransactionKind.Bet,
+        money: { amount: '10.00', currency: 'BRL' },
+      }),
+      useCase.execute({
+        providerId: 'phase6-wallets-provider',
+        externalTransactionId: `wallet-two-${walletTwo.id}`,
+        idempotencyKey: `wallet-two-key-${walletTwo.id}`,
+        playerId: walletTwo.playerId,
+        walletId: walletTwo.id,
+        roundId: 'phase6-wallets-round',
+        gameId: 'phase6-wallets-game',
+        kind: WagerTransactionKind.Bet,
+        money: { amount: '10.00', currency: 'BRL' },
+      }),
+      useCase.execute({
+        providerId: 'phase6-wallets-provider',
+        externalTransactionId: `wallet-loss-${walletOne.id}`,
+        idempotencyKey: `wallet-loss-key-${walletOne.id}`,
+        playerId: walletOne.playerId,
+        walletId: walletOne.id,
+        roundId: 'phase6-wallets-round',
+        gameId: 'phase6-wallets-game',
+        kind: WagerTransactionKind.Loss,
+        money: { amount: '10.00', currency: 'BRL' },
+      }),
+    ]);
+    const [reloadedOne, reloadedTwo] = await Promise.all([
+      rootUnitOfWork.wallets.findById(walletOne.id),
+      rootUnitOfWork.wallets.findById(walletTwo.id),
+    ]);
+    const counts = await dataSource.manager.query<Array<{ ledger: string; version: number }>>(
+      `SELECT
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1) AS ledger,
+         version
+       FROM wallets WHERE id = $1`,
+      [walletOne.id],
+    );
+
+    expect(betOne.status).toBe(WagerTransactionStatus.Processed);
+    expect(betTwo.status).toBe(WagerTransactionStatus.Processed);
+    expect(loss.status).toBe(WagerTransactionStatus.Processed);
+    expect(reloadedOne?.balance.toJSON()).toEqual({ amount: '40.00', currency: 'BRL' });
+    expect(reloadedTwo?.balance.toJSON()).toEqual({ amount: '40.00', currency: 'BRL' });
+    expect(counts).toEqual([{ ledger: '2', version: 2 }]);
+  });
+
+  test('rolls back transaction, ledger and outbox when a processing write fails', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const wallet = await new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    ).execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '10.00', currency: 'BRL' },
+    });
+    const failingOutbox: OutboxMessageRepositoryPort = {
+      findById: (...args) => rootUnitOfWork.outbox.findById(...args),
+      insert: () => Promise.reject(new Error('intentional Phase 6 outbox failure')),
+      save: (...args) => rootUnitOfWork.outbox.save(...args),
+    };
+    const failingUnitOfWork: FinancialUnitOfWorkPort = {
+      wallets: rootUnitOfWork.wallets,
+      transactions: rootUnitOfWork.transactions,
+      ledger: rootUnitOfWork.ledger,
+      inbox: rootUnitOfWork.inbox,
+      outbox: failingOutbox,
+      transaction: (callback) =>
+        rootUnitOfWork.transaction(async (transactionalUnitOfWork) =>
+          callback({ ...transactionalUnitOfWork, outbox: failingOutbox }),
+        ),
+    };
+    const useCase = new ProcessWagerTransactionUseCase(
+      failingUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    );
+
+    await expectRejected(
+      useCase.execute({
+        providerId: 'phase6-rollback-provider',
+        externalTransactionId: `rollback-${wallet.id}`,
+        idempotencyKey: `rollback-key-${wallet.id}`,
+        playerId: wallet.playerId,
+        walletId: wallet.id,
+        roundId: 'phase6-rollback-round',
+        gameId: 'phase6-rollback-game',
+        kind: WagerTransactionKind.Bet,
+        money: { amount: '5.00', currency: 'BRL' },
+      }),
+      'intentional Phase 6 outbox failure',
+    );
+
+    const rows = await dataSource.manager.query<
+      Array<{
+        transactions: string;
+        ledger: string;
+        outbox: string;
+        balance: string;
+        version: number;
+      }>
+    >(
+      `SELECT
+         (SELECT count(*)::text FROM wager_transactions WHERE wallet_id = $1 AND provider_id = 'phase6-rollback-provider') AS transactions,
+         (SELECT count(*)::text FROM wallet_ledger_entries WHERE wallet_id = $1 AND transaction_id IN (SELECT id FROM wager_transactions WHERE provider_id = 'phase6-rollback-provider')) AS ledger,
+         (SELECT count(*)::text FROM outbox_messages WHERE aggregate_id = $1 AND event_type <> 'WalletBalanceChanged') AS outbox,
+         balance_minor::text AS balance,
+         version
+       FROM wallets WHERE id = $1`,
+      [wallet.id],
+    );
+    expect(rows).toEqual([
+      { transactions: '0', ledger: '0', outbox: '0', balance: '1000', version: 1 },
+    ]);
+  });
+
+  test('audits materialized balances against the SQL ledger invariant', async () => {
+    const rootUnitOfWork = FinancialUnitOfWork.fromEntityManager(dataSource.manager);
+    const wallet = await new CreateWalletUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+    ).execute({ playerId: randomUUID(), initialBalance: { amount: '100.00', currency: 'BRL' } });
+    const useCase = new ProcessWagerTransactionUseCase(
+      rootUnitOfWork,
+      new RandomIdGenerator(),
+      new SystemClock(),
+      undefined,
+      () => Promise.resolve(),
+    );
+    await useCase.execute({
+      providerId: 'phase6-audit-provider',
+      externalTransactionId: `audit-${wallet.id}`,
+      idempotencyKey: `audit-key-${wallet.id}`,
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: 'phase6-audit-round',
+      gameId: 'phase6-audit-game',
+      kind: WagerTransactionKind.Bet,
+      money: { amount: '25.00', currency: 'BRL' },
+    });
+
+    const rows = await dataSource.manager.query<Array<{ stored: string; calculated: string }>>(
+      `SELECT
+         w.balance_minor::text AS stored,
+         COALESCE(SUM(CASE WHEN l.direction = 'CREDIT' THEN l.amount_minor ELSE -l.amount_minor END), 0)::text AS calculated
+       FROM wallets w
+       LEFT JOIN wallet_ledger_entries l ON l.wallet_id = w.id
+       WHERE w.id = $1
+       GROUP BY w.id, w.balance_minor`,
+      [wallet.id],
+    );
+    expect(rows).toEqual([{ stored: '7500', calculated: '7500' }]);
   });
 });
 

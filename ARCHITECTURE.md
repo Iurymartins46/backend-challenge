@@ -2,8 +2,9 @@
 
 > Este documento contém somente as decisões arquiteturais que afetam correção,
 > consistência e evolução do sistema. Detalhes de implementação ficam em `docs/`.
-> O bootstrap da Fase 1, o domínio puro da Fase 3 e a persistência da Fase 4 já existem;
-> transporte e processamento financeiro permanecem nas fases seguintes.
+> O bootstrap da Fase 1, o domínio puro da Fase 3, a persistência da Fase 4, a
+> vertical HTTP de wallet/ledger e o processamento HTTP síncrono de BET/WIN/LOSS da
+> Fase 6 já existem; SQS e referências fora de ordem permanecem nas fases seguintes.
 
 ## 1. Objetivo arquitetural
 

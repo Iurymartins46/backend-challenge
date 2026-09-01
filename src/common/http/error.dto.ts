@@ -26,4 +26,10 @@ export class ErrorResponseDto {
 
   @ApiProperty({ type: () => [ErrorItemDto], minItems: 1 })
   errors!: ErrorItemDto[];
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  transactionId?: string;
+
+  @ApiPropertyOptional({ example: false })
+  idempotentReplay?: boolean;
 }

@@ -16,6 +16,8 @@ interface ExceptionPayload {
   message?: string | string[];
   error?: string;
   errors?: Array<Partial<ErrorItemDto>>;
+  transactionId?: string;
+  idempotentReplay?: boolean;
 }
 
 interface HttpErrorLike {
@@ -65,6 +67,17 @@ function domainErrorStatus(code: DomainError['code']): number {
   }
 
   if (code === ErrorCode.WalletAlreadyExists) {
+    return HttpStatus.CONFLICT;
+  }
+
+  if (code === ErrorCode.WagerTransactionNotFound) {
+    return HttpStatus.NOT_FOUND;
+  }
+
+  if (
+    code === ErrorCode.IdempotencyPayloadConflict ||
+    code === ErrorCode.WagerExternalTransactionConflict
+  ) {
     return HttpStatus.CONFLICT;
   }
 
@@ -208,6 +221,10 @@ export function formatExceptionResponse(exception: unknown, traceId: string): Er
         : (errors[0]?.detail ?? 'Request failed.'),
     traceId,
     errors,
+    ...(payload.transactionId === undefined ? {} : { transactionId: payload.transactionId }),
+    ...(payload.idempotentReplay === undefined
+      ? {}
+      : { idempotentReplay: payload.idempotentReplay }),
   };
 }
 
@@ -227,6 +244,10 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     const response = http.getResponse<FastifyReply>();
     const traceId = activeTraceContext().traceId ?? requestCorrelationId(request);
     const body = formatExceptionResponse(exception, traceId);
+
+    if (body.status === 503) {
+      response.header('retry-after', '2');
+    }
 
     if (body.status >= 500) {
       this.logger.error(

@@ -40,6 +40,18 @@ export class TypeOrmWagerTransactionRepository implements WagerTransactionReposi
     return transaction;
   }
 
+  async insertIfAbsent(transaction: WagerTransaction): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .insert()
+      .values(WagerTransactionMapper.toPersistence(transaction))
+      .orIgnore()
+      .returning(['id'])
+      .execute();
+
+    return result.identifiers.length > 0;
+  }
+
   async save(transaction: WagerTransaction): Promise<WagerTransaction> {
     const entity = await this.repository.save(WagerTransactionMapper.toPersistence(transaction));
     return WagerTransactionMapper.toDomain(entity);

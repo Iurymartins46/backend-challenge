@@ -1,0 +1,29 @@
+info:
+  name: Consultar transação por id
+  type: http
+  seq: 2
+  tags:
+    - phase-6
+    - wagering
+
+http:
+  method: GET
+  url: '{{baseUrl}}/wagering/transactions/{{transactionId}}'
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("consulta a transacao processada", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.status).to.equal("PROCESSED");
+          expect(res.body.money.amount).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Consulte a transação criada pelo id interno salvo no ambiente local.

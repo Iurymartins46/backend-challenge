@@ -23,6 +23,8 @@ export interface WagerTransactionRepositoryPort {
     idempotencyKey: string,
   ): Promise<WagerTransaction | null>;
   insert(transaction: WagerTransaction): Promise<WagerTransaction>;
+  /** Inserts atomically and returns false when a unique business key already exists. */
+  insertIfAbsent?(transaction: WagerTransaction): Promise<boolean>;
   save(transaction: WagerTransaction): Promise<WagerTransaction>;
 }
 

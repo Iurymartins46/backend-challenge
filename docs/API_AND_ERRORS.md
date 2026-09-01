@@ -80,6 +80,9 @@ error.money.currency_mismatch
 error.wallet.not_found
 error.wallet.already_exists
 error.idempotency.payload_conflict
+error.wager.external_transaction_conflict
+error.wager.wallet_context_mismatch
+error.wager.transaction_not_found
 error.wager.insufficient_funds
 error.wager.reversal_negative_balance
 error.wager.reference_not_found
@@ -105,6 +108,9 @@ No Swagger, cada código deve informar:
 | `error.money.negative` | 400 | contrato externo não aceita valor negativo | enviar valor não negativo |
 | `error.money.out_of_range` | 400 | amount excede o BIGINT suportado em centavos | corrigir o valor |
 | `error.idempotency.payload_conflict` | 409 | mesma chave foi usada com outro payload | corrigir chave/payload |
+| `error.wager.external_transaction_conflict` | 409 | mesmo external id do provedor já foi usado | usar a transação original ou outro external id |
+| `error.wager.wallet_context_mismatch` | 422 | player ou moeda não correspondem à wallet | corrigir o contexto da wallet |
+| `error.wager.transaction_not_found` | 404 | transação de aposta inexistente | conferir o identificador |
 | `error.wager.insufficient_funds` | 422 | saldo insuficiente para a BET | não repetir sem mudança de saldo |
 | `error.wager.reference_not_found` | 422 | referência não apareceu dentro do limite | enviar/disponibilizar a referência |
 | `error.infrastructure.dependency_unavailable` | 503 | dependência temporariamente indisponível | respeitar `Retry-After` |
@@ -238,6 +244,17 @@ Na Fase 1 são criados:
 O mesmo `ErrorResponseDto` atende validação, domínio, conflito e infraestrutura. Cada
 módulo adiciona seus códigos ao catálogo e acrescenta somente campos opcionais já
 previstos, como `transactionId` ou `idempotentReplay`. Não criar formatos paralelos.
+
+Na Fase 6, `POST /wagering/transactions` aceita somente `BET`, `WIN` e `LOSS`. A chave
+do header é arbitrada com o par `(providerId, idempotencyKey)` no PostgreSQL e o hash
+SHA-256 usa o payload de negócio canonizado em RFC 8785; header e metadados de
+transporte ficam fora do hash. Uma primeira operação processada retorna `201`, replay
+idêntico retorna `200`, rejeição persistida retorna `422` com `transactionId` e
+`idempotentReplay`, e falha transitória após retry retorna `503` com `Retry-After`.
+
+`GET /wagering/transactions/:transactionId` e
+`GET /providers/:providerId/wagering/transactions/:externalTransactionId` expõem um
+DTO de leitura, nunca a entidade TypeORM.
 
 Mapeamento inicial:
 
