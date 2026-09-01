@@ -49,6 +49,9 @@ export interface WagerTransactionState extends CreateWagerTransactionProps {
   readonly referenceTransactionId?: string;
   readonly failureCode?: FailureCode;
   readonly processedAt?: Date;
+  readonly resultBalance?: Money;
+  readonly resultWalletVersion?: number;
+  readonly nextReferenceAttemptAt?: Date;
 }
 
 function assertNonEmpty(value: string, field: string): void {
@@ -88,6 +91,9 @@ export class WagerTransaction {
     private _referenceTransactionId?: string,
     private _failureCode?: FailureCode,
     private _processedAt?: Date,
+    private _resultBalance?: Money,
+    private _resultWalletVersion?: number,
+    private _nextReferenceAttemptAt?: Date,
   ) {}
 
   static create(props: CreateWagerTransactionProps): WagerTransaction {
@@ -168,6 +174,11 @@ export class WagerTransaction {
       state.referenceTransactionId,
       state.failureCode,
       state.processedAt === undefined ? undefined : cloneDate(state.processedAt),
+      state.resultBalance,
+      state.resultWalletVersion,
+      state.nextReferenceAttemptAt === undefined
+        ? undefined
+        : cloneDate(state.nextReferenceAttemptAt),
     );
   }
 
@@ -185,6 +196,43 @@ export class WagerTransaction {
 
   get processedAt(): Date | undefined {
     return this._processedAt === undefined ? undefined : new Date(this._processedAt.getTime());
+  }
+
+  get resultBalance(): Money | undefined {
+    return this._resultBalance;
+  }
+
+  get resultWalletVersion(): number | undefined {
+    return this._resultWalletVersion;
+  }
+
+  get nextReferenceAttemptAt(): Date | undefined {
+    return this._nextReferenceAttemptAt === undefined
+      ? undefined
+      : new Date(this._nextReferenceAttemptAt.getTime());
+  }
+
+  recordResultSnapshot(balance: Money, walletVersion: number): void {
+    if (this._status !== WagerTransactionStatus.Processed) {
+      throw new DomainInvariantError('Only processed transactions can store a result snapshot.');
+    }
+
+    if (balance.currency !== this.money.currency || balance.isNegative()) {
+      throw new DomainInvariantError(
+        'Result snapshot must be a non-negative wallet balance in the transaction currency.',
+      );
+    }
+
+    if (!Number.isInteger(walletVersion) || walletVersion < 1) {
+      throw new DomainInvariantError('Result wallet version must be a positive integer.');
+    }
+
+    if (this._resultBalance !== undefined || this._resultWalletVersion !== undefined) {
+      throw new DomainInvariantError('A transaction result snapshot can only be stored once.');
+    }
+
+    this._resultBalance = balance;
+    this._resultWalletVersion = walletVersion;
   }
 
   markProcessed(referenceTransactionId: string | undefined, at: Date): void {

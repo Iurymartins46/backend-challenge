@@ -12,6 +12,8 @@ export interface OutboxMessageState {
   readonly attempts: number;
   readonly nextAttemptAt?: Date;
   readonly publishedAt?: Date;
+  readonly lockedBy?: string;
+  readonly lockedUntil?: Date;
 }
 
 function assertNonEmpty(value: string, field: string): void {
@@ -38,6 +40,8 @@ export class OutboxMessage {
     private _attempts: number,
     private _nextAttemptAt?: Date,
     private _publishedAt?: Date,
+    private _lockedBy?: string,
+    private _lockedUntil?: Date,
   ) {}
 
   static enqueue(event: IntegrationEvent<unknown>): OutboxMessage {
@@ -62,6 +66,18 @@ export class OutboxMessage {
       throw new DomainInvariantError('Outbox attempts must be a non-negative integer.');
     }
 
+    if (state.lockedBy !== undefined) {
+      assertNonEmpty(state.lockedBy, 'Outbox lock owner');
+    }
+
+    if ((state.lockedBy === undefined) !== (state.lockedUntil === undefined)) {
+      throw new DomainInvariantError('Outbox lease owner and expiry must be set together.');
+    }
+
+    if (state.publishedAt !== undefined && state.lockedBy !== undefined) {
+      throw new DomainInvariantError('Published outbox messages cannot retain a lease.');
+    }
+
     return new OutboxMessage(
       state.id,
       state.aggregateId,
@@ -71,6 +87,8 @@ export class OutboxMessage {
       state.attempts,
       state.nextAttemptAt === undefined ? undefined : cloneDate(state.nextAttemptAt),
       state.publishedAt === undefined ? undefined : cloneDate(state.publishedAt),
+      state.lockedBy,
+      state.lockedUntil === undefined ? undefined : cloneDate(state.lockedUntil),
     );
   }
 
@@ -84,6 +102,14 @@ export class OutboxMessage {
 
   get publishedAt(): Date | undefined {
     return this._publishedAt === undefined ? undefined : new Date(this._publishedAt.getTime());
+  }
+
+  get lockedBy(): string | undefined {
+    return this._lockedBy;
+  }
+
+  get lockedUntil(): Date | undefined {
+    return this._lockedUntil === undefined ? undefined : new Date(this._lockedUntil.getTime());
   }
 
   isPending(): boolean {
@@ -105,6 +131,8 @@ export class OutboxMessage {
 
     this._publishedAt = cloneDate(at);
     this._nextAttemptAt = undefined;
+    this._lockedBy = undefined;
+    this._lockedUntil = undefined;
   }
 
   scheduleRetry(now: Date, policy: RetryPolicy = DEFAULT_RETRY_POLICY): void {
@@ -119,5 +147,7 @@ export class OutboxMessage {
 
     this._attempts = nextAttempt;
     this._nextAttemptAt = policy.nextAttemptAt(now, nextAttempt);
+    this._lockedBy = undefined;
+    this._lockedUntil = undefined;
   }
 }

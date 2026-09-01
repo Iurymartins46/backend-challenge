@@ -12,6 +12,8 @@ export interface AppConfig {
   };
   database: {
     url: string;
+    lockTimeoutMs: number;
+    statementTimeoutMs: number;
   };
   logging: {
     level: ValidatedEnvironment['LOG_LEVEL'];
@@ -50,6 +52,8 @@ export function configuration(): AppConfig {
     },
     database: {
       url: env.DATABASE_URL,
+      lockTimeoutMs: env.DATABASE_LOCK_TIMEOUT_MS,
+      statementTimeoutMs: env.DATABASE_STATEMENT_TIMEOUT_MS,
     },
     logging: {
       level: env.LOG_LEVEL,

@@ -16,6 +16,12 @@ PostgreSQL e LocalStack reais executados por Docker Compose. Cobrir:
 - publishers e workers concorrentes;
 - recuperação após reinício.
 
+Os cenários reais da Fase 4 ficam opt-in para que a suíte padrão não apague dados de um
+banco de desenvolvimento. Com o PostgreSQL do Compose saudável e a migration aplicada,
+execute `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/financial-persistence.spec.ts`.
+O fixture usa identificadores únicos e não tenta remover lançamentos, respeitando o
+trigger append-only do ledger.
+
 ## Concorrência distribuída
 
 Um harness sobe pelo menos três processos independentes contra o mesmo banco e filas.

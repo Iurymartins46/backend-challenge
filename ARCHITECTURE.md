@@ -2,8 +2,8 @@
 
 > Este documento contém somente as decisões arquiteturais que afetam correção,
 > consistência e evolução do sistema. Detalhes de implementação ficam em `docs/`.
-> O bootstrap da Fase 1 e o domínio puro da Fase 3 já existem; persistência, transporte
-> e processamento financeiro ainda são arquitetura-alvo para as fases seguintes.
+> O bootstrap da Fase 1, o domínio puro da Fase 3 e a persistência da Fase 4 já existem;
+> transporte e processamento financeiro permanecem nas fases seguintes.
 
 ## 1. Objetivo arquitetural
 
@@ -57,9 +57,11 @@ Entidades TypeORM são separadas das entidades de domínio. Mappers explícitos 
 ### 4.1 TypeORM
 
 TypeORM é aceito pelo desafio e foi escolhido por familiaridade profissional, reduzindo
-o risco do timebox. Todos os writes financeiros usam repositories ligados ao mesmo
-`EntityManager` fornecido pelo Unit of Work; manager global não é usado dentro da
-transação.
+o risco do timebox. A Fase 4 registra entidades de infraestrutura, migration reversível,
+mappers explícitos e `FinancialUnitOfWork`. Todos os writes financeiros usam repositories
+ligados ao mesmo `EntityManager` fornecido pelo Unit of Work; manager global não é usado
+dentro da transação. `BIGINT` permanece string na entidade TypeORM e só é convertido para
+`bigint` no mapper de `Money`.
 
 ### 4.2 Dinheiro em centavos com `bigint`
 
