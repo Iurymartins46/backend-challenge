@@ -10,6 +10,7 @@ import type { Wallet } from './wallet';
 export interface EventContext {
   readonly correlationId: string;
   readonly causationId?: string;
+  readonly eventId?: string;
   readonly occurredAt?: Date;
 }
 
@@ -133,7 +134,7 @@ export class WagerTransactionProcessed extends IntegrationEvent<WagerTransaction
     }
 
     return new WagerTransactionProcessed({
-      eventId: transaction.id,
+      eventId: context.eventId ?? transaction.id,
       aggregateId: transaction.walletId,
       ...contextProps(context, transaction.processedAt ?? transaction.createdAt),
       data: {
@@ -181,7 +182,7 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerTransactionR
     }
 
     return new WagerTransactionRejected({
-      eventId: transaction.id,
+      eventId: context.eventId ?? transaction.id,
       aggregateId: transaction.walletId,
       ...contextProps(context, transaction.createdAt),
       data: {
@@ -283,7 +284,7 @@ export class WagerTransactionPendingReference extends IntegrationEvent<WagerTran
     }
 
     return new WagerTransactionPendingReference({
-      eventId: transaction.id,
+      eventId: context.eventId ?? transaction.id,
       aggregateId: transaction.walletId,
       ...contextProps(context, transaction.createdAt),
       data: {

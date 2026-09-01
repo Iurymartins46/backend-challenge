@@ -6,12 +6,15 @@ import {
   ExternalTransactionConflictError,
   IdempotencyPayloadConflictError,
   isBusinessFailureCode,
+  LedgerDirection,
   Money,
   OutboxMessage,
   WagerTransaction,
   WagerTransactionKind,
+  WagerTransactionPendingReference,
   WagerTransactionProcessed,
   WagerTransactionRejected,
+  WagerTransactionStatus,
   WagerWalletContextMismatchError,
   WalletBalanceChanged,
   WalletLedgerEntry,
@@ -37,7 +40,11 @@ const HTTP_WAGER_KINDS: readonly HttpWagerTransactionKind[] = [
   WagerTransactionKind.Bet,
   WagerTransactionKind.Win,
   WagerTransactionKind.Loss,
+  WagerTransactionKind.Refund,
+  WagerTransactionKind.Rollback,
 ];
+
+const REFERENCE_INITIAL_DELAY_MS = 2_000;
 
 export class ProcessWagerTransactionUseCase {
   constructor(
@@ -81,19 +88,33 @@ export class ProcessWagerTransactionUseCase {
     payloadHash: string,
   ): Promise<WagerTransactionSubmissionView> {
     if (!HTTP_WAGER_KINDS.includes(input.kind)) {
-      throw new DomainInvariantError('Only BET, WIN and LOSS can be submitted through this API.');
+      throw new DomainInvariantError(
+        'Only BET, WIN, LOSS, REFUND and ROLLBACK can be submitted through this API.',
+      );
     }
 
     const money = Money.from(input.money);
     const correlationId = input.correlationId?.trim() || undefined;
 
     return this.unitOfWork.transaction(async (unitOfWork) => {
+      let pendingTransaction: WagerTransaction | undefined;
+      let idempotentReplay = false;
+
       const existingByKey = await unitOfWork.transactions.findByProviderAndIdempotencyKey(
         input.providerId,
         input.idempotencyKey,
       );
       if (existingByKey !== null) {
-        return this.replayOrConflict(existingByKey, payloadHash);
+        if (!existingByKey.matchesPayload(payloadHash)) {
+          throw new IdempotencyPayloadConflictError();
+        }
+
+        if (existingByKey.status !== WagerTransactionStatus.PendingReference) {
+          return toWagerTransactionSubmissionView(existingByKey, true);
+        }
+
+        pendingTransaction = existingByKey;
+        idempotentReplay = true;
       }
 
       const existingByExternal =
@@ -102,11 +123,20 @@ export class ProcessWagerTransactionUseCase {
           input.externalTransactionId,
         );
       if (existingByExternal !== null) {
-        return this.replayByExternalIdOrConflict(
-          existingByExternal,
-          input.idempotencyKey,
-          payloadHash,
-        );
+        if (existingByExternal.idempotencyKey !== input.idempotencyKey) {
+          throw new ExternalTransactionConflictError();
+        }
+
+        if (!existingByExternal.matchesPayload(payloadHash)) {
+          throw new IdempotencyPayloadConflictError();
+        }
+
+        if (existingByExternal.status !== WagerTransactionStatus.PendingReference) {
+          return toWagerTransactionSubmissionView(existingByExternal, true);
+        }
+
+        pendingTransaction = existingByExternal;
+        idempotentReplay = true;
       }
 
       const wallet = await unitOfWork.wallets.findByIdForUpdate(input.walletId);
@@ -125,7 +155,16 @@ export class ProcessWagerTransactionUseCase {
         input.idempotencyKey,
       );
       if (lockedExistingByKey !== null) {
-        return this.replayOrConflict(lockedExistingByKey, payloadHash);
+        if (!lockedExistingByKey.matchesPayload(payloadHash)) {
+          throw new IdempotencyPayloadConflictError();
+        }
+
+        if (lockedExistingByKey.status !== WagerTransactionStatus.PendingReference) {
+          return toWagerTransactionSubmissionView(lockedExistingByKey, true);
+        }
+
+        pendingTransaction = lockedExistingByKey;
+        idempotentReplay = true;
       }
 
       const lockedExistingByExternal =
@@ -134,60 +173,178 @@ export class ProcessWagerTransactionUseCase {
           input.externalTransactionId,
         );
       if (lockedExistingByExternal !== null) {
-        return this.replayByExternalIdOrConflict(
-          lockedExistingByExternal,
-          input.idempotencyKey,
+        if (lockedExistingByExternal.idempotencyKey !== input.idempotencyKey) {
+          throw new ExternalTransactionConflictError();
+        }
+
+        if (!lockedExistingByExternal.matchesPayload(payloadHash)) {
+          throw new IdempotencyPayloadConflictError();
+        }
+
+        if (lockedExistingByExternal.status !== WagerTransactionStatus.PendingReference) {
+          return toWagerTransactionSubmissionView(lockedExistingByExternal, true);
+        }
+
+        pendingTransaction = lockedExistingByExternal;
+        idempotentReplay = true;
+      }
+
+      let transaction = pendingTransaction;
+      if (transaction === undefined) {
+        transaction = WagerTransaction.create({
+          id: this.idGenerator.next(),
+          providerId: input.providerId,
+          externalTransactionId: input.externalTransactionId,
+          idempotencyKey: input.idempotencyKey,
           payloadHash,
-        );
-      }
+          walletId: input.walletId,
+          playerId: input.playerId,
+          roundId: input.roundId,
+          gameId: input.gameId,
+          kind: input.kind,
+          money,
+          referenceExternalTransactionId: input.referenceExternalTransactionId,
+          createdAt: this.clock.now(),
+        });
 
-      const transaction = WagerTransaction.create({
-        id: this.idGenerator.next(),
-        providerId: input.providerId,
-        externalTransactionId: input.externalTransactionId,
-        idempotencyKey: input.idempotencyKey,
-        payloadHash,
-        walletId: input.walletId,
-        playerId: input.playerId,
-        roundId: input.roundId,
-        gameId: input.gameId,
-        kind: input.kind,
-        money,
-        createdAt: this.clock.now(),
-      });
-
-      const inserted = await this.insertIfAbsent(unitOfWork, transaction);
-      if (!inserted) {
-        const concurrentByKey = await unitOfWork.transactions.findByProviderAndIdempotencyKey(
-          input.providerId,
-          input.idempotencyKey,
-        );
-        if (concurrentByKey !== null) {
-          return this.replayOrConflict(concurrentByKey, payloadHash);
-        }
-
-        const concurrentByExternal =
-          await unitOfWork.transactions.findByProviderAndExternalTransactionId(
+        const inserted = await this.insertIfAbsent(unitOfWork, transaction);
+        if (!inserted) {
+          const concurrentByKey = await unitOfWork.transactions.findByProviderAndIdempotencyKey(
             input.providerId,
-            input.externalTransactionId,
-          );
-        if (concurrentByExternal !== null) {
-          return this.replayByExternalIdOrConflict(
-            concurrentByExternal,
             input.idempotencyKey,
-            payloadHash,
           );
-        }
+          if (concurrentByKey !== null) {
+            return this.replayOrConflict(concurrentByKey, payloadHash);
+          }
 
-        throw new DomainInvariantError('A wager transaction conflict was not recoverable.');
+          const concurrentByExternal =
+            await unitOfWork.transactions.findByProviderAndExternalTransactionId(
+              input.providerId,
+              input.externalTransactionId,
+            );
+          if (concurrentByExternal !== null) {
+            return this.replayByExternalIdOrConflict(
+              concurrentByExternal,
+              input.idempotencyKey,
+              payloadHash,
+            );
+          }
+
+          throw new DomainInvariantError('A wager transaction conflict was not recoverable.');
+        }
       }
 
-      let balanceChange: WalletBalanceChange | undefined;
       try {
-        if (input.kind === WagerTransactionKind.Bet) {
-          balanceChange = wallet.debit(money, transaction.createdAt);
-        } else if (input.kind === WagerTransactionKind.Win) {
-          balanceChange = wallet.credit(money, transaction.createdAt);
+        let reference: WagerTransaction | undefined;
+        if (transaction.canWaitForReference()) {
+          const referenceExternalTransactionId = transaction.referenceExternalTransactionId;
+          if (referenceExternalTransactionId === undefined) {
+            throw new DomainInvariantError('A reference-dependent transaction lacks a reference.');
+          }
+
+          reference =
+            (await unitOfWork.transactions.findByProviderAndExternalTransactionId(
+              transaction.providerId,
+              referenceExternalTransactionId,
+            )) ?? undefined;
+
+          if (reference === undefined) {
+            if (transaction.status !== WagerTransactionStatus.PendingReference) {
+              transaction.markPendingReference(
+                new Date(transaction.createdAt.getTime() + REFERENCE_INITIAL_DELAY_MS),
+              );
+              await unitOfWork.transactions.save(transaction);
+              await unitOfWork.outbox.insert(
+                OutboxMessage.enqueue(
+                  WagerTransactionPendingReference.from(transaction, {
+                    correlationId: correlationId ?? transaction.id,
+                    causationId: input.causationId,
+                    eventId: this.idGenerator.next(),
+                    occurredAt: transaction.createdAt,
+                  }),
+                ),
+              );
+            }
+
+            return toWagerTransactionSubmissionView(transaction, idempotentReplay);
+          }
+
+          transaction.assertReferenceCompatible(reference);
+          if (isReversalKind(transaction.kind)) {
+            const existingReversal = await unitOfWork.transactions.findProcessedReversal(
+              reference.id,
+              transaction.kind,
+            );
+            if (existingReversal !== null) {
+              transaction.assertNoProcessedReversal([existingReversal]);
+            }
+          }
+        }
+
+        let balanceChange: WalletBalanceChange | undefined;
+        if (transaction.kind === WagerTransactionKind.Bet) {
+          balanceChange = wallet.debit(transaction.money, transaction.createdAt);
+        } else if (transaction.kind === WagerTransactionKind.Win) {
+          balanceChange = wallet.credit(transaction.money, transaction.createdAt);
+        } else if (transaction.kind === WagerTransactionKind.Refund) {
+          balanceChange = wallet.credit(transaction.money, transaction.createdAt);
+        } else if (transaction.kind === WagerTransactionKind.Rollback) {
+          const direction = transaction.ledgerDirectionFor(reference);
+          balanceChange =
+            direction === LedgerDirection.Debit
+              ? wallet.debitForReversal(transaction.money, transaction.createdAt)
+              : wallet.credit(transaction.money, transaction.createdAt);
+        }
+
+        if (balanceChange !== undefined) {
+          await unitOfWork.wallets.save(wallet);
+
+          const ledgerEntry = WalletLedgerEntry.create({
+            id: this.idGenerator.next(),
+            walletId: wallet.id,
+            transactionId: transaction.id,
+            direction: balanceChange.direction,
+            money: balanceChange.money,
+            balanceBefore: balanceChange.balanceBefore,
+            balanceAfter: balanceChange.balanceAfter,
+            createdAt: balanceChange.occurredAt,
+          });
+          await unitOfWork.ledger.insert(ledgerEntry);
+
+          transaction.markProcessed(reference?.id, balanceChange.occurredAt);
+          transaction.recordResultSnapshot(wallet.balance, wallet.version);
+          await unitOfWork.transactions.save(transaction);
+          await unitOfWork.outbox.insert(
+            OutboxMessage.enqueue(
+              WagerTransactionProcessed.from(transaction, {
+                correlationId: correlationId ?? transaction.id,
+                causationId: input.causationId,
+                occurredAt: balanceChange.occurredAt,
+              }),
+            ),
+          );
+          await unitOfWork.outbox.insert(
+            OutboxMessage.enqueue(
+              WalletBalanceChanged.from(wallet, ledgerEntry, {
+                correlationId: correlationId ?? transaction.id,
+                causationId: transaction.id,
+                occurredAt: balanceChange.occurredAt,
+              }),
+            ),
+          );
+        } else {
+          transaction.markProcessed(reference?.id, transaction.createdAt);
+          transaction.recordResultSnapshot(wallet.balance, wallet.version);
+          await unitOfWork.transactions.save(transaction);
+          await unitOfWork.outbox.insert(
+            OutboxMessage.enqueue(
+              WagerTransactionProcessed.from(transaction, {
+                correlationId: correlationId ?? transaction.id,
+                causationId: input.causationId,
+                occurredAt: transaction.createdAt,
+              }),
+            ),
+          );
         }
       } catch (error: unknown) {
         if (
@@ -197,75 +354,41 @@ export class ProcessWagerTransactionUseCase {
           throw error;
         }
 
-        const failureCode = error.code as FailureCode;
-        transaction.reject(failureCode);
-        await unitOfWork.transactions.save(transaction);
-        await unitOfWork.outbox.insert(
-          OutboxMessage.enqueue(
-            WagerTransactionRejected.from(transaction, {
-              correlationId: correlationId ?? transaction.id,
-              causationId: input.causationId,
-              occurredAt: transaction.createdAt,
-            }),
-          ),
-        );
-
-        return toWagerTransactionSubmissionView(transaction, false);
-      }
-
-      if (balanceChange !== undefined) {
-        await unitOfWork.wallets.save(wallet);
-
-        const ledgerEntry = WalletLedgerEntry.create({
-          id: this.idGenerator.next(),
-          walletId: wallet.id,
-          transactionId: transaction.id,
-          direction: balanceChange.direction,
-          money: balanceChange.money,
-          balanceBefore: balanceChange.balanceBefore,
-          balanceAfter: balanceChange.balanceAfter,
-          createdAt: balanceChange.occurredAt,
-        });
-        await unitOfWork.ledger.insert(ledgerEntry);
-
-        transaction.markProcessed(undefined, balanceChange.occurredAt);
-        transaction.recordResultSnapshot(wallet.balance, wallet.version);
-        await unitOfWork.transactions.save(transaction);
-        await unitOfWork.outbox.insert(
-          OutboxMessage.enqueue(
-            WagerTransactionProcessed.from(transaction, {
-              correlationId: correlationId ?? transaction.id,
-              causationId: input.causationId,
-              occurredAt: balanceChange.occurredAt,
-            }),
-          ),
-        );
-        await unitOfWork.outbox.insert(
-          OutboxMessage.enqueue(
-            WalletBalanceChanged.from(wallet, ledgerEntry, {
-              correlationId: correlationId ?? transaction.id,
-              causationId: transaction.id,
-              occurredAt: balanceChange.occurredAt,
-            }),
-          ),
-        );
-      } else {
-        transaction.markProcessed(undefined, transaction.createdAt);
-        transaction.recordResultSnapshot(wallet.balance, wallet.version);
-        await unitOfWork.transactions.save(transaction);
-        await unitOfWork.outbox.insert(
-          OutboxMessage.enqueue(
-            WagerTransactionProcessed.from(transaction, {
-              correlationId: correlationId ?? transaction.id,
-              causationId: input.causationId,
-              occurredAt: transaction.createdAt,
-            }),
-          ),
+        return this.persistRejected(
+          unitOfWork,
+          transaction,
+          error.code as FailureCode,
+          correlationId,
+          input.causationId,
+          idempotentReplay,
         );
       }
 
-      return toWagerTransactionSubmissionView(transaction, false);
+      return toWagerTransactionSubmissionView(transaction, idempotentReplay);
     });
+  }
+
+  private async persistRejected(
+    unitOfWork: FinancialUnitOfWorkPort,
+    transaction: WagerTransaction,
+    failureCode: FailureCode,
+    correlationId: string | undefined,
+    causationId: string | undefined,
+    idempotentReplay: boolean,
+  ): Promise<WagerTransactionSubmissionView> {
+    transaction.reject(failureCode);
+    await unitOfWork.transactions.save(transaction);
+    await unitOfWork.outbox.insert(
+      OutboxMessage.enqueue(
+        WagerTransactionRejected.from(transaction, {
+          correlationId: correlationId ?? transaction.id,
+          causationId,
+          occurredAt: transaction.createdAt,
+        }),
+      ),
+    );
+
+    return toWagerTransactionSubmissionView(transaction, idempotentReplay);
   }
 
   private async insertIfAbsent(
@@ -302,6 +425,12 @@ export class ProcessWagerTransactionUseCase {
 
     throw new ExternalTransactionConflictError();
   }
+}
+
+function isReversalKind(
+  kind: WagerTransactionKind,
+): kind is WagerTransactionKind.Refund | WagerTransactionKind.Rollback {
+  return kind === WagerTransactionKind.Refund || kind === WagerTransactionKind.Rollback;
 }
 
 function delaySleep(delayMs: number): Promise<void> {

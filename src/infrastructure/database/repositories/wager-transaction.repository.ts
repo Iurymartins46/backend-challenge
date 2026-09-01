@@ -1,7 +1,11 @@
 import { type EntityManager, type Repository } from 'typeorm';
 
 import type { WagerTransactionRepositoryPort } from '../../../modules/wagering/application/ports';
-import type { WagerTransaction } from '../../../modules/wagering/domain/wager-transaction';
+import {
+  WagerTransactionStatus,
+  type WagerTransactionKind,
+  type WagerTransaction,
+} from '../../../modules/wagering/domain/wager-transaction';
 import { WagerTransactionEntity } from '../entities/wager-transaction.entity';
 import { WagerTransactionMapper } from '../mappers/wager-transaction.mapper';
 
@@ -32,6 +36,20 @@ export class TypeOrmWagerTransactionRepository implements WagerTransactionReposi
     idempotencyKey: string,
   ): Promise<WagerTransaction | null> {
     const entity = await this.repository.findOne({ where: { providerId, idempotencyKey } });
+    return entity === null ? null : WagerTransactionMapper.toDomain(entity);
+  }
+
+  async findProcessedReversal(
+    referenceTransactionId: string,
+    kind: WagerTransactionKind.Refund | WagerTransactionKind.Rollback,
+  ): Promise<WagerTransaction | null> {
+    const entity = await this.repository.findOne({
+      where: {
+        referenceTransactionId,
+        kind,
+        status: WagerTransactionStatus.Processed,
+      },
+    });
     return entity === null ? null : WagerTransactionMapper.toDomain(entity);
   }
 

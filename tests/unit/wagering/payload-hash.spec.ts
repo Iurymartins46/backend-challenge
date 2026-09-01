@@ -42,6 +42,15 @@ describe('wager payload canonicalization', () => {
     expect(hashWagerPayload(payload)).toBe(hashWagerPayload(reordered));
   });
 
+  test('includes the reference in the business hash', () => {
+    expect(hashWagerPayload({ ...payload, referenceExternalTransactionId: 'bet-1' })).not.toBe(
+      hashWagerPayload({ ...payload, referenceExternalTransactionId: 'bet-2' }),
+    );
+    expect(hashWagerPayload(payload)).not.toBe(
+      hashWagerPayload({ ...payload, referenceExternalTransactionId: 'bet-1' }),
+    );
+  });
+
   test('does not accept non-finite JSON numbers', () => {
     expect(() => canonicalizeJson({ value: Infinity })).toThrow(TypeError);
   });

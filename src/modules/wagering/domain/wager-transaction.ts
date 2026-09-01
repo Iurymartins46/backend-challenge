@@ -257,19 +257,22 @@ export class WagerTransaction {
     this._status = WagerTransactionStatus.Processed;
     this._referenceTransactionId = referenceTransactionId;
     this._processedAt = cloneDate(at);
+    this._nextReferenceAttemptAt = undefined;
   }
 
-  markPendingReference(): void {
+  markPendingReference(nextReferenceAttemptAt?: Date): void {
     if (this._status === WagerTransactionStatus.PendingReference) {
       return;
     }
 
     this.assertCanTransition('mark pending reference');
-    if (!this.requiresReference()) {
+    if (!this.canWaitForReference()) {
       throw new DomainInvariantError(`${this.kind} does not require a reference.`);
     }
 
     this._status = WagerTransactionStatus.PendingReference;
+    this._nextReferenceAttemptAt =
+      nextReferenceAttemptAt === undefined ? undefined : cloneDate(nextReferenceAttemptAt);
   }
 
   reject(code: FailureCode): void {
@@ -280,6 +283,7 @@ export class WagerTransaction {
 
     this._status = WagerTransactionStatus.Rejected;
     this._failureCode = code;
+    this._nextReferenceAttemptAt = undefined;
   }
 
   fail(code: FailureCode): void {
@@ -290,6 +294,7 @@ export class WagerTransaction {
 
     this._status = WagerTransactionStatus.Failed;
     this._failureCode = code;
+    this._nextReferenceAttemptAt = undefined;
   }
 
   isTerminal(): boolean {
@@ -306,6 +311,10 @@ export class WagerTransaction {
 
   requiresReference(): boolean {
     return isReferenceKind(this.kind);
+  }
+
+  canWaitForReference(): boolean {
+    return this.requiresReference() || this.referenceExternalTransactionId !== undefined;
   }
 
   matchesPayload(payloadHash: string): boolean {

@@ -4,12 +4,13 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–6 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–7 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
-> processamento HTTP síncrono de BET/WIN/LOSS, idempotência, lock por wallet e
-> consultas de transação estão implementados; processamento SQS de apostas entra nas
-> fases seguintes. O
+> processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
+> wallet, referências persistidas fora de ordem e consultas de transação estão
+> implementados; processamento SQS e o worker agendado de referências entram nas fases
+> seguintes. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -172,9 +173,11 @@ O arquivo `.env` da raiz continua sendo exclusivo do Compose/aplicação. Não c
 segredos nos YAMLs do Bruno; quando uma rota futura precisar de credencial, mantenha o
 valor real fora do Git e referencie uma variável local do Bruno.
 
-As rotas síncronas de apostas da Fase 6 exigem o header `Idempotency-Key` e ficam em
+As rotas síncronas de apostas das Fases 6–7 exigem o header `Idempotency-Key` e ficam em
 `POST /wagering/transactions`, `GET /wagering/transactions/:transactionId` e
-`GET /providers/:providerId/wagering/transactions/:externalTransactionId`.
+`GET /providers/:providerId/wagering/transactions/:externalTransactionId`. O POST
+aceita `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`; as duas reversões exigem
+`referenceExternalTransactionId`.
 
 ## Health checks
 

@@ -123,6 +123,7 @@ export class WageringController {
       gameId: body.gameId,
       kind: body.kind,
       money: body.money,
+      referenceExternalTransactionId: body.referenceExternalTransactionId,
       correlationId,
     });
 

@@ -78,6 +78,10 @@ export class WagerTransactionMapper {
       processedAt: entity.processedAt === null ? undefined : new Date(entity.processedAt.getTime()),
       resultBalance,
       resultWalletVersion: entity.resultWalletVersion ?? undefined,
+      nextReferenceAttemptAt:
+        entity.nextReferenceAttemptAt === null
+          ? undefined
+          : new Date(entity.nextReferenceAttemptAt.getTime()),
     });
   }
 }

@@ -84,6 +84,7 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
       resolved(this.storedTransactions.find((transaction) => transaction.id === id) ?? null),
     findByProviderAndExternalTransactionId: () => resolved(null),
     findByProviderAndIdempotencyKey: () => resolved(null),
+    findProcessedReversal: () => resolved(null),
     insert: (transaction) => {
       this.storedTransactions.push(transaction);
       return resolved(transaction);
