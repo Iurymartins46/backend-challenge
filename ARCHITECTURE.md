@@ -205,7 +205,10 @@ PENDING ───────────────> PROCESSED
 
 `PROCESSED`, `REJECTED` e `FAILED` são terminais. `LOSS` processa sem ledger e sem
 alterar a versão da wallet. `REFUND` referencia BET; `ROLLBACK` referencia BET, WIN ou
-REFUND. Valor, provider, player, wallet, moeda e rodada devem corresponder.
+REFUND. Valor, provider, player, wallet, moeda e rodada devem corresponder. A abertura
+`OPENING` é uma transação interna do ciclo de vida da wallet: ela grava um único evento
+`WalletBalanceChanged`; os eventos de processamento de apostas começam com a entrada
+de provedor na Fase 6.
 
 A leitura literal adotada é uma reversão processada por `(reference, kind)`: no máximo
 um REFUND e um ROLLBACK diretos para a mesma referência. Essa interpretação deve ser

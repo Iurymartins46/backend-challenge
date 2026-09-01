@@ -1,0 +1,46 @@
+info:
+  name: Criar wallet
+  type: http
+  seq: 1
+  tags:
+    - phase-5
+    - wallet
+
+http:
+  method: POST
+  url: '{{baseUrl}}/wallets'
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "playerId": "0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1",
+        "initialBalance": {
+          "amount": "1000.00",
+          "currency": "BRL"
+        }
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("cria wallet com dinheiro serializado como string", function() {
+          expect(res.status).to.equal(201);
+          expect(res.body.id).to.be.a("string").and.not.be.empty;
+          expect(res.body.balance.amount).to.equal("1000.00");
+          expect(res.body.balance.currency).to.equal("BRL");
+          expect(res.body.version).to.equal(1);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Execute uma vez por player. Copie o id retornado para a variável walletId do ambiente
+  local antes de executar as consultas.

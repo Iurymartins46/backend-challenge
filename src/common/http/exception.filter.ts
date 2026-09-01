@@ -6,6 +6,7 @@ import { PinoLogger } from 'nestjs-pino';
 
 import { activeTraceContext } from '../../infrastructure/telemetry';
 import { requestCorrelationId } from '../../infrastructure/logging/correlation.middleware';
+import { DomainError } from '../../modules/wagering/domain/errors';
 import { ErrorCode } from './error-codes';
 import type { ErrorItemDto } from './error.dto';
 import type { ErrorResponseDto } from './error.dto';
@@ -58,6 +59,30 @@ function errorCode(status: number): string {
   return ErrorCode.RequestInvalid;
 }
 
+function domainErrorStatus(code: DomainError['code']): number {
+  if (code === ErrorCode.WalletNotFound) {
+    return HttpStatus.NOT_FOUND;
+  }
+
+  if (code === ErrorCode.WalletAlreadyExists) {
+    return HttpStatus.CONFLICT;
+  }
+
+  if (code === ErrorCode.MoneyCurrencyMismatch || code.startsWith('error.wager.')) {
+    return HttpStatus.UNPROCESSABLE_ENTITY;
+  }
+
+  if (code === ErrorCode.InfrastructureDependencyUnavailable) {
+    return HttpStatus.SERVICE_UNAVAILABLE;
+  }
+
+  if (code === ErrorCode.InfrastructureInternalError) {
+    return HttpStatus.INTERNAL_SERVER_ERROR;
+  }
+
+  return HttpStatus.BAD_REQUEST;
+}
+
 function isInvalidJsonMessage(message: string): boolean {
   return (
     message.startsWith('JSON Parse error') ||
@@ -94,6 +119,16 @@ function payloadFrom(exception: unknown): { status: number; payload: ExceptionPa
     return {
       status: exception.getStatus(),
       payload,
+    };
+  }
+
+  if (exception instanceof DomainError) {
+    return {
+      status: domainErrorStatus(exception.code),
+      payload: {
+        message: exception.message,
+        errors: [{ code: exception.code, detail: exception.message }],
+      },
     };
   }
 

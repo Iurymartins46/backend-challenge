@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import type { AppConfig } from '../../config/configuration';
+import { FINANCIAL_UNIT_OF_WORK } from '../../modules/wagering/application/ports';
+import { FinancialUnitOfWork } from './financial-unit-of-work';
 import { entities } from './entities/registry';
 
 @Module({
@@ -23,5 +26,14 @@ import { entities } from './entities/registry';
       }),
     }),
   ],
+  providers: [
+    {
+      provide: FINANCIAL_UNIT_OF_WORK,
+      inject: [DataSource],
+      useFactory: (dataSource: DataSource) =>
+        FinancialUnitOfWork.fromEntityManager(dataSource.manager),
+    },
+  ],
+  exports: [FINANCIAL_UNIT_OF_WORK],
 })
 export class DatabaseModule {}

@@ -5,6 +5,8 @@ export type DomainErrorCode =
   | 'error.money.negative'
   | 'error.money.out_of_range'
   | 'error.money.currency_mismatch'
+  | 'error.wallet.not_found'
+  | 'error.wallet.already_exists'
   | 'error.domain.invariant_violation'
   | 'error.wager.insufficient_funds'
   | 'error.wager.reversal_negative_balance'
@@ -161,5 +163,17 @@ export class MoneyCurrencyMismatchError extends MoneyError {
       `Money currencies do not match: ${leftCurrency} and ${rightCurrency}.`,
       'error.money.currency_mismatch',
     );
+  }
+}
+
+export class WalletNotFoundError extends DomainError {
+  constructor() {
+    super('The requested wallet does not exist.', 'error.wallet.not_found');
+  }
+}
+
+export class WalletAlreadyExistsError extends DomainError {
+  constructor() {
+    super('The player already has a wallet in this currency.', 'error.wallet.already_exists');
   }
 }

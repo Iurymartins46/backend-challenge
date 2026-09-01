@@ -11,6 +11,7 @@ import { DatabaseModule } from './infrastructure/database/database.module';
 import { AppLoggingModule } from './infrastructure/logging/logging.module';
 import { SqsModule } from './infrastructure/messaging/sqs.module';
 import { ProviderAuthGuard } from './modules/auth/provider-auth.guard';
+import { WalletModule } from './modules/wallet/wallet.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ProviderAuthGuard } from './modules/auth/provider-auth.guard';
     SqsModule,
     AuthModule,
     HealthModule,
+    WalletModule,
   ],
   providers: [
     {

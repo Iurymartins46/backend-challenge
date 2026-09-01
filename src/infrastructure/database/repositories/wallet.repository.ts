@@ -1,7 +1,7 @@
-import { type EntityManager, type Repository } from 'typeorm';
+import { QueryFailedError, type EntityManager, type Repository } from 'typeorm';
 
 import type { WalletRepositoryPort } from '../../../modules/wagering/application/ports';
-import type { Wallet } from '../../../modules/wagering/domain/wallet';
+import { WalletAlreadyExistsError, type Wallet } from '../../../modules/wagering/domain';
 import { WalletEntity } from '../entities/wallet.entity';
 import { WalletMapper } from '../mappers/wallet.mapper';
 
@@ -32,7 +32,16 @@ export class TypeOrmWalletRepository implements WalletRepositoryPort {
   }
 
   async insert(wallet: Wallet): Promise<Wallet> {
-    await this.repository.insert(WalletMapper.toPersistence(wallet));
+    try {
+      await this.repository.insert(WalletMapper.toPersistence(wallet));
+    } catch (error: unknown) {
+      if (isPlayerCurrencyUniqueViolation(error)) {
+        throw new WalletAlreadyExistsError();
+      }
+
+      throw error;
+    }
+
     return wallet;
   }
 
@@ -40,4 +49,13 @@ export class TypeOrmWalletRepository implements WalletRepositoryPort {
     const entity = await this.repository.save(WalletMapper.toPersistence(wallet));
     return WalletMapper.toDomain(entity);
   }
+}
+
+function isPlayerCurrencyUniqueViolation(error: unknown): boolean {
+  if (!(error instanceof QueryFailedError)) {
+    return false;
+  }
+
+  const driverError = error.driverError as { code?: unknown; constraint?: unknown };
+  return driverError.code === '23505' && driverError.constraint === 'uq_wallets_player_currency';
 }
