@@ -150,4 +150,21 @@ export class OutboxMessage {
     this._lockedBy = undefined;
     this._lockedUntil = undefined;
   }
+
+  /**
+   * Keeps a permanently pending event retryable after the operational attempt cap.
+   * The counter is saturated so a dependency outage cannot discard a confirmed event
+   * or overflow the persisted integer while the publisher keeps recovering it.
+   */
+  deferRetry(now: Date, policy: RetryPolicy = DEFAULT_RETRY_POLICY): void {
+    if (!this.isPending()) {
+      throw new DomainInvariantError('Published outbox messages cannot be retried.');
+    }
+
+    const attempt = Math.max(1, Math.min(this._attempts, policy.maxAttempts));
+    this._attempts = attempt;
+    this._nextAttemptAt = policy.nextAttemptAt(now, attempt);
+    this._lockedBy = undefined;
+    this._lockedUntil = undefined;
+  }
 }

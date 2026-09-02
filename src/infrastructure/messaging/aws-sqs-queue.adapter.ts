@@ -3,10 +3,16 @@ import {
   DeleteMessageCommand,
   GetQueueUrlCommand,
   ReceiveMessageCommand,
+  SendMessageCommand,
   type SQSClient,
 } from '@aws-sdk/client-sqs';
 
-import type { SqsQueuePort, SqsReceiveOptions, SqsTransportMessage } from './sqs-queue.port';
+import type {
+  SqsPublishOptions,
+  SqsQueuePort,
+  SqsReceiveOptions,
+  SqsTransportMessage,
+} from './sqs-queue.port';
 
 export class AwsSqsQueueAdapter implements SqsQueuePort {
   private readonly queueUrls = new Map<string, string>();
@@ -59,6 +65,17 @@ export class AwsSqsQueueAdapter implements SqsQueuePort {
         QueueUrl: await this.queueUrl(queueName),
         ReceiptHandle: receiptHandle,
         VisibilityTimeout: visibilityTimeoutSeconds,
+      }),
+    );
+  }
+
+  async publish(queueName: string, options: SqsPublishOptions): Promise<void> {
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: await this.queueUrl(queueName),
+        MessageBody: options.messageBody,
+        MessageGroupId: options.messageGroupId,
+        MessageDeduplicationId: options.messageDeduplicationId,
       }),
     );
   }

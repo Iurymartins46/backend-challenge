@@ -30,6 +30,11 @@ comando válido, inbox atômica, redelivery idempotente, divergência de message
 somente depois do commit. Execute-a isoladamente com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts`.
 
+`outbox-publisher.spec.ts` adiciona a prova da Fase 9 contra PostgreSQL e LocalStack:
+claims concorrentes, visibilidade somente após commit, retry após indisponibilidade do
+SQS e recuperação de lease depois de publicar antes da marcação. Execute-a isoladamente
+com `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/outbox-publisher.spec.ts`.
+
 ## Concorrência distribuída
 
 Um harness sobe pelo menos três processos independentes contra o mesmo banco e filas.

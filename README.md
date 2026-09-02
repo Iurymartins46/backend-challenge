@@ -4,14 +4,15 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–8 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–9 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
 > wallet, referências persistidas fora de ordem e consultas de transação estão
 > implementados; o consumidor SQS com inbox persistente, redelivery e ack pós-commit
-> também está implementado; o publisher da outbox e o worker agendado de referências
-> entram nas fases seguintes. O
+> também está implementado; o publisher da outbox com claim/lease, retry e recuperação
+> de crash também está implementado; o worker agendado de referências entra na fase
+> seguinte. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -192,6 +193,20 @@ Para validar a integração real da Fase 8, com PostgreSQL e LocalStack saudáve
 ```bash
 RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts
 ```
+
+O publisher da outbox inicia no Compose quando `SQS_OUTBOX_PUBLISHER_ENABLED=true`. Ele
+reivindica linhas vencidas com lease curto, publica somente em `wager-events.fifo` usando
+`eventId` como deduplication id e `walletId` como group id, e marca a linha somente se o
+lease ainda pertencer à instância. Falhas de SQS usam backoff exponencial com jitter; o
+limite operacional satura o contador de tentativas e mantém o evento pendente para
+recuperação posterior. O estado da outbox continua sendo a fonte da verdade, portanto
+uma publicação após crash pode ser duplicada e deve ser deduplicada pelo consumidor por
+`eventId`.
+
+As opções operacionais são `SQS_OUTBOX_BATCH_SIZE`, `SQS_OUTBOX_POLL_INTERVAL_MS`,
+`SQS_OUTBOX_LEASE_MS`, `SQS_OUTBOX_MAX_ATTEMPTS`,
+`SQS_OUTBOX_RETRY_BASE_DELAY_MS`, `SQS_OUTBOX_RETRY_MAX_DELAY_MS` e
+`SQS_OUTBOX_RETRY_JITTER_PERCENT`.
 
 ## Health checks
 
