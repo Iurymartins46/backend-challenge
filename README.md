@@ -4,7 +4,7 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** as Fases 1–14 e a subfase obrigatória 12A estão implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** as Fases 1–14 e as subfases 12A e 12B estão implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
@@ -18,9 +18,9 @@ outbox.
 > [docs/AUDIT_PHASES_1_14.md](docs/AUDIT_PHASES_1_14.md). O enunciado original foi
 > preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
-Esta entrega não implementa a subfase visual 12B, autenticação OIDC da Fase 15 nem o
-teste de carga da Fase 16. O registro final de evidências, limitações e roteiro de
-apresentação está em [docs/DELIVERY.md](docs/DELIVERY.md).
+Esta entrega não implementa autenticação OIDC da Fase 15 nem o teste de carga da Fase
+16. O registro final de evidências, limitações e roteiro de apresentação está em
+[docs/DELIVERY.md](docs/DELIVERY.md).
 
 ## Documentação
 
@@ -103,6 +103,7 @@ bun run docker:config         # valida a configuração resolvida
 bun run docker:build          # constrói a API sem iniciar containers
 bun run docker:up             # inicia as imagens já construídas
 bun run docker:up:infra       # inicia somente PostgreSQL e LocalStack
+bun run docker:up:observability # inicia aplicação + stack visual 12B opcional
 bun run docker:ps             # mostra o estado de todos os serviços
 bun run docker:queues         # lista as filas criadas no LocalStack
 bun run docker:logs           # acompanha os logs da API
@@ -156,10 +157,16 @@ docker compose \
   up --build
 ```
 
-O overlay visual será criado em fase posterior. Nesta fase, `OTEL_ENABLED=true` configura
-o exporter OTLP assíncrono da aplicação e `/metrics` expõe as métricas em formato
-Prometheus. Nenhum Collector, Tempo, Loki, Alloy ou Grafana é provisionado; isso pertence
-à subfase 12B.
+O overlay habilita `OTEL_ENABLED=true`, envia traces de forma assíncrona para o Collector,
+faz o Prometheus coletar `/metrics` pela rede interna e encaminha os logs JSON dos
+containers pelo Alloy para o Loki. O Grafana fica disponível em
+`http://localhost:3001` (usuário e senha padrão `admin`; sobrescreva
+`GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` e `GRAFANA_PORT` no `.env` local).
+
+Somente o Grafana publica uma porta no host. Collector, Prometheus, Tempo, Loki e Alloy
+ficam acessíveis apenas na rede do Compose; readiness da API continua dependendo apenas
+de PostgreSQL e SQS. O dashboard provisionado `Distributed Wagering - Processing and
+Outbox` usa exclusivamente métricas de baixa cardinalidade.
 
 A métrica `wagering.sqs.messages.dlq` é uma gauge obtida dos atributos da DLQ real. Ela
 é separada do contador `wagering.sqs.consumer.permanent_failures`, que representa a
@@ -333,5 +340,7 @@ readiness também retorna `503`.
 - A suíte real é ignorada: `test:integration` exige
   `RUN_REAL_INTEGRATION_TESTS=true`; `bun run test:concurrency` já habilita a variável
   própria, mas ainda exige PostgreSQL e LocalStack saudáveis.
-- O overlay de observabilidade não sobe Grafana: a subfase 12B está explicitamente
-  pendente e `docker/compose.observability.yaml` permanece apenas reservado.
+- O overlay de observabilidade pode ser validado com
+  `docker compose --env-file .env -f docker/compose.yaml -f docker/compose.observability.yaml config`;
+  se algum backend não iniciar, consulte os logs do serviço correspondente. A stack
+  visual é opcional e não participa da readiness financeira.

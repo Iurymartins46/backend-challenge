@@ -15,8 +15,8 @@ docker/
 ```
 
 - `compose.yaml`: API, PostgreSQL, LocalStack e inicialização das filas;
-- `compose.observability.yaml`: overlay com Collector, Prometheus, Tempo, Loki, Alloy e
-  Grafana;
+- `compose.observability.yaml`: overlay opcional da subfase 12B com Collector,
+  Prometheus, Tempo, Loki, Alloy e Grafana; somente Grafana publica porta no host;
 - diretórios internos: scripts, configuração e provisioning montados nos containers.
 
 Os comandos passam explicitamente o `.env` da raiz com `--env-file .env`;
@@ -36,3 +36,18 @@ Buildx continua sendo a correção recomendada para o host.
 
 O contexto de build da API deve apontar para a raiz do repositório, mesmo que o
 `Dockerfile` esteja em `docker/api/`.
+
+Para subir a stack visual junto da aplicação:
+
+```bash
+bun run docker:up:observability
+```
+
+Esse comando não é necessário para executar a aplicação: `bun run docker:up` continua
+subindo somente o Compose base. Se a imagem da API ainda não existir, construa-a antes
+com `bun run docker:build` (ou `bun run docker:build:classic` em hosts sem Buildx).
+
+Os serviços internos são descobertos pelos nomes `otel-collector`, `prometheus`,
+`tempo` e `loki`. A interface fica em `http://localhost:3001`; use as variáveis
+`GRAFANA_PORT`, `GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD` para ajustar a
+instalação local.
