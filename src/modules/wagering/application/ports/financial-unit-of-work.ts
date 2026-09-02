@@ -15,6 +15,8 @@ export interface FinancialUnitOfWorkPort {
   readonly inbox: InboxMessageRepositoryPort;
   readonly outbox: OutboxMessageRepositoryPort;
   transaction<T>(callback: FinancialTransactionCallback<T>): Promise<T>;
+  /** Executes a read-only workflow against one PostgreSQL REPEATABLE READ snapshot. */
+  repeatableRead<T>(callback: FinancialTransactionCallback<T>): Promise<T>;
 }
 
 export type FinancialTransactionCallback<T> = (unitOfWork: FinancialUnitOfWorkPort) => Promise<T>;

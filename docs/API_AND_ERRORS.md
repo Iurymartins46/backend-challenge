@@ -262,6 +262,13 @@ submissão idêntica pode resolver a pendência depois que a referência for con
 `GET /providers/:providerId/wagering/transactions/:externalTransactionId` expõem um
 DTO de leitura, nunca a entidade TypeORM.
 
+Na Fase 11, `POST /wallets/:walletId/reconciliation` retorna `200` com
+`storedBalance`, `calculatedBalance`, `difference` assinada, `consistent` e
+`checkedEntries`. Wallet inexistente retorna `404/error.wallet.not_found`; uma
+indisponibilidade transitória do PostgreSQL retorna `503` com
+`error.infrastructure.dependency_unavailable` e `Retry-After`. A rota nunca corrige a
+wallet nem o ledger.
+
 Mapeamento inicial:
 
 | Situação | HTTP |

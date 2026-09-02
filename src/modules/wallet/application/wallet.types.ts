@@ -31,6 +31,16 @@ export interface WalletLedgerPageView {
   readonly nextCursor: string | null;
 }
 
+export interface WalletReconciliationView {
+  readonly walletId: string;
+  readonly storedBalance: MoneyProps;
+  readonly calculatedBalance: MoneyProps;
+  /** Stored minus calculated; this internal money value may be signed. */
+  readonly difference: MoneyProps;
+  readonly consistent: boolean;
+  readonly checkedEntries: number;
+}
+
 export interface ListWalletLedgerInput {
   readonly walletId: string;
   readonly after?: WalletLedgerCursorPosition;
