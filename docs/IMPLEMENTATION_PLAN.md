@@ -572,14 +572,14 @@ bun run test:concurrency
 
 ### Checklist eliminatório
 
-- [ ] nenhum `number` monetário;
-- [ ] nenhum saldo negativo por race;
-- [ ] nenhum débito/crédito duplicado;
-- [ ] idempotência persiste após restart;
-- [ ] três instâncias passam;
-- [ ] nenhum evento é publicado antes do commit;
-- [ ] ledger existe e é imutável;
-- [ ] PostgreSQL e SQS reais são usados.
+- [x] nenhum `number` monetário;
+- [x] nenhum saldo negativo por race;
+- [x] nenhum débito/crédito duplicado;
+- [x] idempotência persiste após restart;
+- [x] três instâncias passam;
+- [x] nenhum evento é publicado antes do commit;
+- [x] ledger existe e é imutável;
+- [x] PostgreSQL e SQS reais são usados.
 
 ### Critério de aceite
 

@@ -47,8 +47,17 @@ snapshot e uma divergência injetada por fixture SQL sem ajuste automático. Exe
 
 ## Concorrência distribuída
 
-Um harness sobe pelo menos três processos independentes contra o mesmo banco e filas.
-Promises contra mocks não contam como paralelismo real.
+`bun run test:concurrency` habilita o harness da Fase 13. Ele cria um banco PostgreSQL
+efêmero com migrations aplicadas, três filas FIFO exclusivas (com DLQ de comandos) e sobe
+três processos NestJS independentes contra esses mesmos recursos. O teardown encerra os
+processos, remove as filas e elimina o banco; banco de desenvolvimento e filas padrão não
+são reutilizados. PostgreSQL e LocalStack do Compose devem estar saudáveis antes do comando.
+
+Promises contra mocks não contam como paralelismo real. As corridas usam uma barreira de
+início e os resultados usam polling com deadline. Em timeout, o harness imprime os
+`correlationId`s e os últimos logs de cada processo. O failpoint de crash só aceita
+`NODE_ENV=test` com o valor exato `terminate-after-commit-before-ack`; ele envia `SIGKILL`
+depois do commit do comando e antes de `DeleteMessage`.
 
 Cenários obrigatórios:
 
@@ -60,6 +69,9 @@ Cenários obrigatórios:
 6. dois publishers disputam a outbox;
 7. REFUND/ROLLBACK chega antes da referência;
 8. restart preserva consistência final.
+
+Além dos oito cenários, o banco isolado executa as migrations e tenta, por SQL direto,
+um saldo negativo e a mutação do ledger append-only.
 
 Failpoints são adapters injetáveis habilitados somente em teste. Esperas usam polling
 com deadline, não sleeps arbitrários.

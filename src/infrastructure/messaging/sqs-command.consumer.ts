@@ -30,6 +30,15 @@ export interface SqsCommandHandlerPort {
   handle(message: SqsTransportMessage): Promise<SqsCommandHandlingResult>;
 }
 
+/**
+ * Test seam deliberately placed after the financial Unit of Work resolves and
+ * before SQS acknowledgement. Production wiring never provides this hook.
+ */
+export type SqsAfterCommitBeforeAckFailpoint = (
+  message: SqsTransportMessage,
+  result: SqsCommandHandlingResult,
+) => Promise<void>;
+
 export class SqsCommandConsumer {
   private readonly logger = new Logger(SqsCommandConsumer.name);
   private readonly inFlight = new Set<Promise<void>>();
@@ -43,6 +52,7 @@ export class SqsCommandConsumer {
     private readonly handler: SqsCommandHandlerPort,
     private readonly options: SqsCommandConsumerOptions,
     readonly metrics: SqsConsumerMetrics = new SqsConsumerMetrics(),
+    private readonly afterCommitBeforeAck?: SqsAfterCommitBeforeAckFailpoint,
   ) {}
 
   onModuleInit(): void {
@@ -127,6 +137,7 @@ export class SqsCommandConsumer {
       this.recordResult(handled.result.status, handled.result.idempotentReplay);
 
       // The handler returns only after the financial transaction committed.
+      await this.afterCommitBeforeAck?.(message, handled);
       await this.queue.delete(this.options.queueName, message.receiptHandle);
       this.metrics.increment('messagesAcked');
     } catch (error: unknown) {
@@ -259,6 +270,25 @@ export class SqsCommandConsumer {
       );
     }
   }
+}
+
+/**
+ * Enables a real process crash only for the distributed test harness. Keeping
+ * this guard here avoids an environment flag becoming a production behaviour.
+ */
+export function testOnlyTerminateAfterCommitBeforeAck():
+  SqsAfterCommitBeforeAckFailpoint | undefined {
+  if (
+    process.env.NODE_ENV !== 'test' ||
+    process.env.SQS_TEST_FAILPOINT !== 'terminate-after-commit-before-ack'
+  ) {
+    return undefined;
+  }
+
+  return async () => {
+    process.kill(process.pid, 'SIGKILL');
+    await new Promise<void>(() => undefined);
+  };
 }
 
 export function classifySqsMessageFailure(error: unknown): SqsMessageFailureClass {

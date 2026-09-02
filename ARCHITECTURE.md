@@ -6,7 +6,9 @@
 > vertical HTTP de wallet/ledger, o processamento HTTP síncrono de BET/WIN/LOSS da
 > Fase 6, de REFUND/ROLLBACK da Fase 7 e o consumidor SQS/inbox da Fase 8 já existem;
 > o publisher da outbox da Fase 9 já existe; o worker agendado de referências pendentes
-> da Fase 10 também existe. A reconciliação da Fase 11 também existe.
+> da Fase 10 também existe. A reconciliação da Fase 11 também existe. A Fase 13 acrescenta
+> uma suíte distribuída que executa três processos NestJS reais contra PostgreSQL e
+> LocalStack isolados para validar as garantias eliminatórias.
 
 ## 1. Objetivo arquitetural
 
@@ -282,8 +284,10 @@ Detalhes e exemplos: [docs/API_AND_ERRORS.md](docs/API_AND_ERRORS.md).
 ## 8. Testes como evidência arquitetural
 
 Testes unitários usam `bun:test`; integração e concorrência usam PostgreSQL e LocalStack
-reais. A suíte distribuída sobe no mínimo três processos e inclui redelivery, crash
-pós-commit/pré-ack, publishers concorrentes, referência fora de ordem e restart.
+reais. `bun run test:concurrency` provisiona um banco e três filas FIFO efêmeros, sobe no
+mínimo três processos NestJS e inclui redelivery, `SIGKILL` pós-commit/pré-ack, publishers
+concorrentes, referência fora de ordem e restart. O hook de crash só existe em
+`NODE_ENV=test` e fica entre o retorno do Unit of Work e o `DeleteMessage`.
 
 O invariante final de todo cenário é wallet igual ao saldo reconstruído pelo ledger.
 
