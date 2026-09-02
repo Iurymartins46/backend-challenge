@@ -8,7 +8,8 @@
 > o publisher da outbox da Fase 9 já existe; o worker agendado de referências pendentes
 > da Fase 10 também existe. A reconciliação da Fase 11 também existe. A Fase 13 acrescenta
 > uma suíte distribuída que executa três processos NestJS reais contra PostgreSQL e
-> LocalStack isolados para validar as garantias eliminatórias.
+> LocalStack isolados para validar as garantias eliminatórias. A consolidação da Fase
+> 14 está registrada em [docs/DELIVERY.md](docs/DELIVERY.md).
 
 ## 1. Objetivo arquitetural
 
@@ -45,7 +46,7 @@ negócio; apenas selecionam trabalho persistido e chamam a aplicação.
 
 ## 3. Organização e boundaries
 
-O código será dividido em domínio, aplicação, infraestrutura e apresentação:
+O código está dividido em domínio, aplicação, infraestrutura e apresentação:
 
 - **domínio:** `Money`, agregados, estados, regras e eventos; não importa NestJS,
   TypeORM ou AWS SDK;
@@ -166,8 +167,9 @@ Detalhes: [docs/DATABASE.md](docs/DATABASE.md).
 
 ### 4.8 Autenticação adiada, boundary mantido
 
-Autenticação não vale pontos e não será implementada no primeiro corte. O bootstrap
-terá `ProviderIdentityPort`, guard global e adapter explícito `AUTH_MODE=none`.
+Autenticação não vale pontos e permanece fora desta entrega. O bootstrap tem
+`ProviderIdentityPort`, guard global e adapter explícito `AUTH_MODE=none`; a suíte
+unitária do guard cobre esse modo.
 
 Uma implementação futura troca apenas o adapter por OIDC externo, preferencialmente
 Keycloak com client credentials. Health permanece público; mensagens SQS são canal
@@ -181,8 +183,8 @@ primeiros imports. A Fase 1 cria resource, propagação, traces básicos, correl
 exporter OTLP configurável. As métricas e spans de negócio entram junto dos casos de
 uso. O consumidor SQS expõe contadores processuais de recebimento, processamento,
 duplicata, rejeição, redelivery transitória, DLQ, ack e heartbeat; eles são
-diagnósticos e não substituem o estado financeiro no PostgreSQL. A stack visual é
-adicionada depois.
+diagnósticos e não substituem o estado financeiro no PostgreSQL. A subfase 12A está
+implementada; a stack visual 12B ainda não foi adicionada.
 
 O publisher da outbox expõe contadores processuais de claims, publicações, falhas,
 retries, leases perdidos e os gauges de quantidade pendente e lag. IDs de eventos e
@@ -214,9 +216,9 @@ docker/
 ```
 
 `docker/compose.yaml` contém aplicação, PostgreSQL, LocalStack e inicialização das
-filas. `docker/compose.observability.yaml` é um overlay com Collector, Prometheus,
-Tempo, Loki, Alloy e Grafana. São serviços distintos, mas ficam no mesmo repositório
-para manter o ambiente local reproduzível.
+filas. `docker/compose.observability.yaml` é um overlay reservado para a subfase 12B.
+Ele ainda não declara Collector, Prometheus, Tempo, Loki, Alloy ou Grafana, portanto a
+entrega atual não afirma que a stack visual está disponível.
 
 ### 4.11 Reconciliação somente para leitura
 
@@ -272,14 +274,15 @@ confirmada com o avaliador como decisão de produto.
 
 ## 7. API e documentação
 
-Swagger será disponibilizado desde o bootstrap e incrementado a cada endpoint. Erros
+Swagger está disponível desde o bootstrap e é incrementado a cada endpoint. Erros
 seguem um contrato JSON único com status, título, detalhe, trace id e um array não vazio
 de erros com códigos de máquina.
 Rejeições persistidas podem acrescentar transaction id; validação múltipla pode
 acrescentar uma lista de erros. O schema inicial nasce na Fase 1 e não é reinventado
 por cada módulo.
 
-Detalhes e exemplos: [docs/API_AND_ERRORS.md](docs/API_AND_ERRORS.md).
+Detalhes e exemplos: [docs/API_AND_ERRORS.md](docs/API_AND_ERRORS.md). A lista final de
+rotas e o smoke cURL estão em [docs/DELIVERY.md](docs/DELIVERY.md).
 
 ## 8. Testes como evidência arquitetural
 
@@ -291,7 +294,8 @@ concorrentes, referência fora de ordem e restart. O hook de crash só existe em
 
 O invariante final de todo cenário é wallet igual ao saldo reconstruído pelo ledger.
 
-Detalhes: [docs/TESTING.md](docs/TESTING.md).
+Detalhes: [docs/TESTING.md](docs/TESTING.md). Os comandos e a evidência registrada para
+a entrega estão em [docs/DELIVERY.md](docs/DELIVERY.md).
 
 ## 9. Trade-offs assumidos
 
@@ -314,3 +318,23 @@ Detalhes: [docs/TESTING.md](docs/TESTING.md).
 - [Mensageria](docs/MESSAGING.md)
 - [Observabilidade](docs/OBSERVABILITY.md)
 - [Estratégia de testes](docs/TESTING.md)
+- [Entrega final, rastreabilidade e apresentação](docs/DELIVERY.md)
+
+## 11. Estado da entrega e limites
+
+As Fases 1–14 e a subfase obrigatória 12A estão implementadas. A aplicação possui
+entrada HTTP e SQS, inbox persistente, transactional outbox, worker de referências,
+reconciliação em `REPEATABLE READ`, métricas, health checks e a suíte distribuída da
+Fase 13. A documentação de entrega relaciona cada garantia a seu teste ou constraint.
+
+Os limites deliberados são:
+
+- `AUTH_MODE=none` é o único adapter disponível; OIDC pertence à Fase 15;
+- a subfase visual 12B não foi implementada; não há Grafana, Collector ou backends
+  visuais no Compose atual;
+- não há teste de carga da Fase 16;
+- o ledger é de uma entrada por wallet/transação; partidas dobradas continuam sendo
+  diferencial opcional;
+- a reconciliação sinaliza divergências com log e métrica, mas não corrige dados;
+- `bun run check` não provisiona dependências reais. As suítes PostgreSQL/LocalStack
+  e a suíte distribuída exigem os comandos opt-in documentados no README.

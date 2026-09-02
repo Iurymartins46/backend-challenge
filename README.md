@@ -4,7 +4,7 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–13 e a subfase obrigatória 12A implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–14 e a subfase obrigatória 12A implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
@@ -17,6 +17,10 @@ outbox.
 > automaticamente. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
+Esta entrega não implementa a subfase visual 12B, autenticação OIDC da Fase 15 nem o
+teste de carga da Fase 16. O registro final de evidências, limitações e roteiro de
+apresentação está em [docs/DELIVERY.md](docs/DELIVERY.md).
+
 ## Documentação
 
 - [Arquitetura](ARCHITECTURE.md)
@@ -27,6 +31,7 @@ outbox.
 - [Mensageria](docs/MESSAGING.md)
 - [Observabilidade](docs/OBSERVABILITY.md)
 - [Testes](docs/TESTING.md)
+- [Entrega final, rastreabilidade e apresentação](docs/DELIVERY.md)
 
 ## Pré-requisitos
 
@@ -121,6 +126,25 @@ Com a aplicação em execução:
 O Swagger deve ser habilitado por configuração e permanecer disponível no ambiente de
 desenvolvimento usado na avaliação.
 
+## Endpoints e filas
+
+| Método | Endpoint | Finalidade |
+|---|---|---|
+| `GET` | `/health/live` | liveness do processo |
+| `GET` | `/health/ready` | readiness de PostgreSQL e SQS |
+| `GET` | `/metrics` | métricas Prometheus |
+| `POST` | `/wallets` | abre uma wallet e, para saldo positivo, seu `OPENING` |
+| `GET` | `/wallets/:walletId` | consulta a wallet |
+| `GET` | `/wallets/:walletId/ledger` | pagina o ledger imutável |
+| `POST` | `/wallets/:walletId/reconciliation` | compara wallet e ledger no mesmo snapshot |
+| `POST` | `/wagering/transactions` | processa `BET`, `WIN`, `LOSS`, `REFUND` ou `ROLLBACK` |
+| `GET` | `/wagering/transactions/:transactionId` | consulta por id interno |
+| `GET` | `/providers/:providerId/wagering/transactions/:externalTransactionId` | consulta por id externo |
+
+Comandos entram em `wager-transactions.fifo`, sua redrive policy usa
+`wager-transactions-dlq.fifo`, e eventos da outbox saem em `wager-events.fifo`. O
+`MessageGroupId` é o `walletId`; a consistência final permanece no PostgreSQL.
+
 ## Observabilidade local
 
 ```bash
@@ -143,9 +167,22 @@ bun run check
 ```
 
 `check` verifica primeiro se `package.json` e `bun.lock` estão sincronizados, depois
-executa formatação em modo somente leitura, lint, typecheck, todos os testes, build
-TypeScript e o smoke test de compatibilidade dos pacotes. Os comandos individuais
-continuam disponíveis quando for necessário isolar uma falha.
+executa formatação em modo somente leitura, lint, typecheck, todos os testes, build,
+smoke test de compatibilidade dos pacotes e o scan heurístico de segredos em arquivos
+rastreados. As suítes reais de integração e concorrência continuam opt-in para não
+tocarem dependências sem que isso seja explícito.
+
+Para repetir as verificações da entrega em partes:
+
+```bash
+bun run format:check
+bun run lint
+bun run typecheck
+bun run test:unit
+bun run build
+bun run smoke:packages
+bun run security:scan
+```
 
 Na Fase 4, a integração opt-in contra PostgreSQL real valida a migration em banco
 efêmero (`up/down/up`), constraints, round-trip, rollback atômico e a UoW. Execute-a com
@@ -172,18 +209,37 @@ de ordem e restart — e remove os processos, banco e filas ao terminar. Execute
 PostgreSQL e LocalStack saudáveis; ela não altera o banco de desenvolvimento nem as filas
 padrão.
 
+O registro da máquina, versões e duração observada da suíte distribuída está em
+[docs/DELIVERY.md](docs/DELIVERY.md). A suíte deve ser repetida com PostgreSQL e
+LocalStack saudáveis antes de apresentar o resultado; seus recursos efêmeros não devem
+ser confundidos com o banco ou as filas padrão.
+
 O projeto usa NestJS 12 com Fastify e validação Standard Schema/Zod. TypeScript 6.0.2 é
 o maior release aceito por `typescript-eslint@8.69.0` (`<6.1.0`); TypeScript 7 será
 adotado quando o linter declarar compatibilidade, sem desativar o lint tipado.
+
+## Smoke HTTP com cURL e Bruno
+
+Com a API, a migration e a infraestrutura em execução, a coleção cURL cria uma wallet,
+consulta Swagger/health/metrics, executa uma BET, repete a mesma chave, consulta os dois
+identificadores da transação, pagina o ledger, reconcilia e verifica um `404`:
+
+```bash
+bun run smoke:http
+# ou contra outra API:
+BASE_URL=http://localhost:3001 bash tests/http/curl/smoke.sh
+```
+
+O script usa somente `curl`, Bash e Bun (para gerar UUIDs); ele não depende de `jq` e
+não grava respostas no repositório. A coleção está em
+[`tests/http/curl/`](tests/http/curl/).
 
 ## Teste manual com Bruno
 
 A coleção OpenCollection versionada fica em `tests/http/bruno`. No Bruno 3+, use
 **Open Collection** e selecione essa pasta (a que contém `opencollection.yml`), depois
 selecione o ambiente `local`. Ela cobre health, Swagger, o envelope uniforme de erro e
-as rotas de wallet da Fase 5. Rotas adicionadas nas próximas fases devem vir
-acompanhadas dos respectivos cenários manuais na mesma coleção; o Codex pode criá-los e
-mantê-los junto com o código.
+as rotas de wallet, reconciliação e wagering implementadas.
 
 O arquivo `.env` da raiz continua sendo exclusivo do Compose/aplicação. Não coloque
 segredos nos YAMLs do Bruno; quando uma rota futura precisar de credencial, mantenha o
@@ -254,3 +310,19 @@ Liveness verifica somente o processo. Readiness verifica PostgreSQL e a fila de 
 SQS com timeout configurável por `HEALTHCHECK_TIMEOUT_MS`, retorna `503` quando uma
 dependência está indisponível e nunca depende da stack visual. Durante o shutdown,
 readiness também retorna `503`.
+
+## Troubleshooting
+
+- `bun install --frozen-lockfile` falha: use Bun `1.4.0`; não regenere o lockfile com
+  outro runtime.
+- PostgreSQL ou LocalStack não ficam saudáveis: execute `bun run docker:ps`, confira as
+  portas `5432` e `4566`, e veja os logs das dependências.
+- O host não possui Buildx: use `bun run docker:build:classic` e depois
+  `bun run docker:up`, conforme [docker/README.md](docker/README.md).
+- A API inicia, mas a migration não foi aplicada: com a infraestrutura local ativa,
+  execute `bun run migration:run`; integração real cria seus próprios bancos efêmeros.
+- A suíte real é ignorada: `test:integration` exige
+  `RUN_REAL_INTEGRATION_TESTS=true`; `bun run test:concurrency` já habilita a variável
+  própria, mas ainda exige PostgreSQL e LocalStack saudáveis.
+- O overlay de observabilidade não sobe Grafana: a subfase 12B está explicitamente
+  pendente e `docker/compose.observability.yaml` permanece apenas reservado.
