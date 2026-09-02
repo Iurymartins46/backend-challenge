@@ -1,358 +1,182 @@
 # Distributed Wagering Processor
 
-Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS SQS,
-com idempotência persistente, concorrência por wallet, ledger imutável e transactional
-outbox.
+Serviço financeiro distribuído para processar operações de apostas recebidas por HTTP
+e Amazon SQS. O projeto protege saldo, idempotência e trilha financeira mesmo com
+mensagens duplicadas, chegada fora de ordem, concorrência entre instâncias e falhas de
+processo.
 
-> **Estado atual:** as Fases 1–14 e as subfases 12A e 12B estão implementadas. A aplicação NestJS, configuração,
-> telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
-> puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
-> processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
-> wallet, referências persistidas fora de ordem e consultas de transação estão
-> implementados; o consumidor SQS com inbox persistente, redelivery e ack pós-commit
-> também está implementado; o publisher da outbox com claim/lease, retry e recuperação
-> de crash também está implementado; o worker agendado de referências pendentes usa
-> claim/lease persistente, backoff e expiração auditável; a reconciliação lê saldo e
-> ledger no mesmo snapshot `REPEATABLE READ`, evidencia divergências sem corrigi-las
-> automaticamente. A auditoria atual e suas provas estão em
-> [docs/AUDIT_PHASES_1_14.md](docs/AUDIT_PHASES_1_14.md). O enunciado original foi
-> preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
+As principais garantias são:
 
-Esta entrega não implementa a autenticação OIDC opcional da Fase 15. O teste de carga
-da Fase 16 está disponível em `bun run test:load`; sua metodologia está em
-[docs/LOAD_TEST.md](docs/LOAD_TEST.md). O registro final de evidências, limitações e
-roteiro de apresentação está em [docs/DELIVERY.md](docs/DELIVERY.md).
+- valores externos em decimal e cálculo interno exato em centavos (`bigint`/`BIGINT`);
+- saldo não negativo, ledger imutável e reconciliação somente para leitura;
+- idempotência persistente por provedor, chave e payload de negócio;
+- lock pessimista por wallet e constraints do PostgreSQL como proteção final;
+- inbox para comandos SQS, confirmação da mensagem somente após commit e outbox
+  transacional para eventos;
+- logs JSON, métricas Prometheus, traces OpenTelemetry, health checks e Swagger.
 
-## Documentação
+O enunciado e todos os requisitos do desafio estão preservados em
+[docs/CHALLENGE.md](docs/CHALLENGE.md). As decisões e seus trade-offs estão em
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-- [Arquitetura](ARCHITECTURE.md)
-- [Plano de implementação](docs/IMPLEMENTATION_PLAN.md)
-- [API, Swagger e erros](docs/API_AND_ERRORS.md)
-- [Dinheiro](docs/MONEY.md)
-- [Banco de dados](docs/DATABASE.md)
-- [Mensageria](docs/MESSAGING.md)
-- [Observabilidade](docs/OBSERVABILITY.md)
-- [Testes](docs/TESTING.md)
-- [Teste de carga da Fase 16](docs/LOAD_TEST.md)
-- [Entrega final, rastreabilidade e apresentação](docs/DELIVERY.md)
+## Começar rapidamente
 
-## Pré-requisitos
-
-- Bun 1.4.0 (também registrado em `.bun-version` e `packageManager`);
-- Docker Engine;
-- Docker Compose v2.
-
-As versões exatas ficam travadas no lockfile e nas imagens Docker. `bun.lock` deve ser
-versionado: ele torna `bun install --frozen-lockfile` e o build da imagem reproduzíveis.
-O ambiente local usa PostgreSQL 18.6 e LocalStack Community 4.14.0.
-
-## Configuração local
+Pré-requisitos: Bun 1.4.0, Docker Engine e Docker Compose v2. Com o repositório
+clonado, execute os comandos abaixo na raiz:
 
 ```bash
 bun install --frozen-lockfile
 cp .env.example .env
+bun run docker:start
+```
+
+`docker:start` é o comando único para iniciar a aplicação local completa: constrói a
+imagem, inicia API, PostgreSQL, LocalStack e as filas SQS, e aplica as migrations. Ao
+terminar, use:
+
+- API: `http://localhost:3000`
+- Swagger: `http://localhost:3000/docs`
+- OpenAPI: `http://localhost:3000/docs-json`
+- liveness: `http://localhost:3000/health/live`
+- readiness: `http://localhost:3000/health/ready`
+
+O `.env.example` contém uma configuração funcional para desenvolvimento. Copie-o antes
+de iniciar e ajuste apenas se houver conflito de portas, credenciais ou serviços
+externos. O arquivo `.env` não é versionado: não coloque segredos no Git. A imagem
+LocalStack padrão funciona sem token; versões mais recentes podem exigir
+`LOCALSTACK_AUTH_TOKEN` — veja [docker/README.md](docker/README.md).
+
+Para executar a API no host, mantendo somente as dependências em containers:
+
+```bash
 bun run docker:up:infra
 bun run migration:run
 bun run dev
 ```
 
-A raiz do projeto contém um `.env` local ignorado pelo Git. Os comandos passam esse
-arquivo explicitamente com `--env-file .env`, evitando que diferentes versões do
-Compose procurem `.env` ao lado de `docker/compose.yaml`. `.env.example` é o contrato
-versionado e contém todas as variáveis necessárias tanto para execução no host quanto
-dentro da rede Docker. Não versionar credenciais reais.
+Nesse modo, `DATABASE_URL` e `SQS_ENDPOINT` devem apontar para `localhost`, como no
+arquivo de exemplo. Pare os containers com `bun run docker:down`; os volumes são
+preservados.
 
-O LocalStack passou a exigir conta e token nas imagens `2026.03.0+`. O padrão
-`localstack/localstack:4.14.0` é a última linha Community que inicia sem credencial
-externa e mantém o setup reproduzível. Para testar uma imagem atual autenticada, altere
-`LOCALSTACK_IMAGE` somente no `.env` local e preencha `LOCALSTACK_AUTH_TOKEN`; nunca
-versione o token. Consulte a
-[documentação de autenticação do LocalStack](https://docs.localstack.cloud/aws/getting-started/auth-token/).
+## Uso da API
 
-A API responde em `http://localhost:3000`. A migration financeira da Fase 4 cria o
-schema reversível; os comandos abaixo executam e revertem esse schema no PostgreSQL.
+| Método | Endpoint | Finalidade |
+| --- | --- | --- |
+| `GET` | `/health/live` | Verifica se o processo está ativo. |
+| `GET` | `/health/ready` | Verifica PostgreSQL e SQS. |
+| `GET` | `/metrics` | Expõe métricas Prometheus. |
+| `POST` | `/wallets` | Cria uma wallet e o lançamento `OPENING`, quando aplicável. |
+| `GET` | `/wallets/:walletId` | Consulta saldo e dados da wallet. |
+| `GET` | `/wallets/:walletId/ledger` | Pagina o ledger imutável. |
+| `POST` | `/wallets/:walletId/reconciliation` | Compara wallet e ledger no mesmo snapshot. |
+| `POST` | `/wagering/transactions` | Processa `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. |
+| `GET` | `/wagering/transactions/:transactionId` | Consulta uma transação pelo identificador interno. |
+| `GET` | `/providers/:providerId/wagering/transactions/:externalTransactionId` | Consulta uma transação pelo identificador externo. |
 
-## Migrations TypeORM
+`POST /wagering/transactions` requer o header `Idempotency-Key`. O contrato completo,
+inclusive formatos de sucesso, códigos de erro e comportamento de replay, está em
+[docs/API_AND_ERRORS.md](docs/API_AND_ERRORS.md) e no Swagger em execução.
+
+Para uma verificação HTTP ponta a ponta após iniciar a stack:
 
 ```bash
-# Gera <timestamp>-adiciona-tabelas-e-signer.ts a partir do diff das entities
+bun run smoke:http
+```
+
+A coleção equivalente para Bruno fica em [tests/http/bruno](tests/http/bruno), e a
+coleção cURL em [tests/http/curl](tests/http/curl).
+
+## Comandos disponíveis
+
+| Comando | Explicação |
+| --- | --- |
+| `bun run dev` | Inicia a API no host e reinicia ao alterar arquivos TypeScript. |
+| `bun run start` | Inicia a API no host sem modo watch. |
+| `bun run build` | Compila TypeScript para `dist/`. |
+| `bun run typecheck` | Verifica os tipos sem gerar arquivos. |
+| `bun run lint` | Executa ESLint e falha com qualquer warning. |
+| `bun run format` | Formata os arquivos cobertos pela configuração Prettier. |
+| `bun run format:check` | Confere a formatação sem alterar arquivos. |
+| `bun run test` | Executa toda a suíte `bun:test`; cenários reais opt-in são ignorados sem suas variáveis. |
+| `bun run test:unit` | Executa somente os testes unitários. |
+| `bun run test:integration` | Executa os testes de integração; use `RUN_REAL_INTEGRATION_TESTS=true` para ativar os cenários PostgreSQL/LocalStack reais. |
+| `bun run test:concurrency:once` | Executa uma rodada real do harness distribuído com três processos. |
+| `bun run test:concurrency` | Executa duas rodadas do harness distribuído para aumentar a confiança contra flakiness. |
+| `bun run test:load` | Executa o experimento opt-in de carga com banco, filas e processos isolados. |
+| `bun run lockfile:check` | Confirma que `package.json` e `bun.lock` estão sincronizados. |
+| `bun run check` | Executa a verificação local completa: lockfile, formato, lint, tipos, testes, build, smoke de pacotes e scan de segredos. |
+| `bun run docker:config` | Valida a configuração final do Docker Compose usando `.env`. |
+| `bun run docker:build` | Constrói somente a imagem da API. |
+| `bun run docker:build:classic` | Constrói a imagem com o builder clássico para hosts sem Buildx. |
+| `bun run docker:up` | Inicia a stack base usando imagens já construídas. |
+| `bun run docker:up:build` | Constrói a imagem e inicia a stack base, sem aplicar migrations. |
+| `bun run docker:start` | Constrói, inicia a stack base e aplica migrations; é o atalho recomendado para desenvolvimento local. |
+| `bun run docker:up:observability` | Inicia API, dependências e o overlay opcional de observabilidade. |
+| `bun run docker:up:infra` | Inicia somente PostgreSQL, LocalStack e a criação das filas. |
+| `bun run docker:down` | Para e remove os containers da stack, preservando volumes nomeados. |
+| `bun run docker:ps` | Mostra o estado de todos os serviços do Compose. |
+| `bun run docker:logs` | Acompanha os logs da API em tempo real. |
+| `bun run docker:queues` | Lista as filas SQS criadas no LocalStack. |
+| `bun run migration:run` | Aplica migrations pendentes no banco configurado por `DATABASE_URL`. |
+| `bun run migration:revert` | Reverte a última migration aplicada. |
+| `bun run migration:show` | Mostra migrations aplicadas e pendentes. |
+| `bun run migration:generate <nome>` | Gera uma migration a partir das mudanças de entidades; sem nome, usa `schema`. |
+| `bun run smoke:packages` | Verifica a compatibilidade de pacotes usada no runtime. |
+| `bun run smoke:http` | Exercita a API com cURL: wallet, aposta, replay, leituras, ledger, reconciliação e erros. |
+| `bun run security:scan` | Procura padrões de segredos em arquivos rastreados; é uma verificação heurística local. |
+
+Os comandos de integração, concorrência e carga exigem PostgreSQL e LocalStack saudáveis.
+Inicie-os antes com `bun run docker:up:infra`. Eles usam recursos efêmeros próprios e
+não usam o banco de desenvolvimento como fixture de resultado. Consulte
+[docs/TESTING.md](docs/TESTING.md) para o que cada suíte prova.
+
+## Migrations
+
+As migrations são versionadas, revisáveis e reversíveis. Para alterar o schema, gere a
+migration a partir das entidades, revise o SQL e valide ida, volta e nova ida em um
+banco real:
+
+```bash
 bun run migration:generate adiciona-tabelas-e-signer
-
-# Sem nome, usa o sufixo seguro "schema": <timestamp>-schema.ts
-bun run migration:generate
-
 bun run migration:show
 bun run migration:run
 bun run migration:revert
 ```
 
-O TypeORM exige um nome válido para formar também o nome da classe; por isso uma
-migration gerada sem argumento não pode ter apenas o timestamp e recebe `schema` como
-sufixo. Gerar migration somente em fases que alterem persistência, começando na Fase 4,
-revisar o SQL gerado e então provar `up/down/up` no PostgreSQL real. Não gerar uma
-migration vazia ao final de toda fase.
+O uso de `migration:generate` sem argumento cria um nome com o sufixo seguro `schema`.
+Não gere migrations vazias. Os detalhes do schema, constraints e transações estão em
+[docs/DATABASE.md](docs/DATABASE.md).
 
-## Executar tudo em containers
+## Observabilidade
 
-```bash
-bun run docker:up:build
-```
-
-Os scripts `docker:*` centralizam o caminho do Compose e o carregamento de `.env`:
+O overlay opcional inclui Collector, Prometheus, Tempo, Loki, Alloy e Grafana:
 
 ```bash
-bun run docker:config         # valida a configuração resolvida
-bun run docker:build          # constrói a API sem iniciar containers
-bun run docker:up             # inicia as imagens já construídas
-bun run docker:up:infra       # inicia somente PostgreSQL e LocalStack
-bun run docker:up:observability # inicia aplicação + stack visual 12B opcional
-bun run docker:ps             # mostra o estado de todos os serviços
-bun run docker:queues         # lista as filas criadas no LocalStack
-bun run docker:logs           # acompanha os logs da API
-bun run docker:down           # encerra os containers; preserva volumes
+bun run docker:up:observability
 ```
 
-O Docker Compose atual usa Buildx por padrão. Se o host ainda não tiver o plugin,
-instale-o ou use temporariamente o builder clássico:
+Grafana fica em `http://localhost:3001` por padrão. A aplicação continua funcional sem
+o overlay: readiness depende apenas de PostgreSQL e SQS. Configuração, sinais e limites
+estão em [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
-```bash
-bun run docker:build:classic
-bun run docker:up
-```
+## Documentação
 
-## Swagger
+- [Requisitos do desafio](docs/CHALLENGE.md)
+- [Decisões de arquitetura](ARCHITECTURE.md)
+- [API, Swagger e contrato de erros](docs/API_AND_ERRORS.md)
+- [Dinheiro](docs/MONEY.md)
+- [Banco de dados](docs/DATABASE.md)
+- [Mensageria](docs/MESSAGING.md)
+- [Estratégia de testes](docs/TESTING.md)
+- [Teste de carga](docs/LOAD_TEST.md)
+- [Registro de entrega e evidências](docs/DELIVERY.md)
+- [Plano de implementação histórico](docs/IMPLEMENTATION_PLAN.md)
 
-Com a aplicação em execução:
+## Problemas comuns
 
-- interface: `http://localhost:3000/docs`;
-- especificação JSON: `http://localhost:3000/docs-json`.
-
-O Swagger deve ser habilitado por configuração e permanecer disponível no ambiente de
-desenvolvimento usado na avaliação.
-
-## Endpoints e filas
-
-| Método | Endpoint                                                              | Finalidade                                            |
-| ------ | --------------------------------------------------------------------- | ----------------------------------------------------- |
-| `GET`  | `/health/live`                                                        | liveness do processo                                  |
-| `GET`  | `/health/ready`                                                       | readiness de PostgreSQL e SQS                         |
-| `GET`  | `/metrics`                                                            | métricas Prometheus                                   |
-| `POST` | `/wallets`                                                            | abre uma wallet e, para saldo positivo, seu `OPENING` |
-| `GET`  | `/wallets/:walletId`                                                  | consulta a wallet                                     |
-| `GET`  | `/wallets/:walletId/ledger`                                           | pagina o ledger imutável                              |
-| `POST` | `/wallets/:walletId/reconciliation`                                   | compara wallet e ledger no mesmo snapshot             |
-| `POST` | `/wagering/transactions`                                              | processa `BET`, `WIN`, `LOSS`, `REFUND` ou `ROLLBACK` |
-| `GET`  | `/wagering/transactions/:transactionId`                               | consulta por id interno                               |
-| `GET`  | `/providers/:providerId/wagering/transactions/:externalTransactionId` | consulta por id externo                               |
-
-Comandos entram em `wager-transactions.fifo`, sua redrive policy usa
-`wager-transactions-dlq.fifo`, e eventos da outbox saem em `wager-events.fifo`. O
-`MessageGroupId` é o `walletId`; a consistência final permanece no PostgreSQL.
-
-## Observabilidade local
-
-```bash
-docker compose \
-  --env-file .env \
-  -f docker/compose.yaml \
-  -f docker/compose.observability.yaml \
-  up --build
-```
-
-O overlay habilita `OTEL_ENABLED=true`, envia traces de forma assíncrona para o Collector,
-faz o Prometheus coletar `/metrics` pela rede interna e encaminha os logs JSON dos
-containers pelo Alloy para o Loki. O Grafana fica disponível em
-`http://localhost:3001` (usuário e senha padrão `admin`; sobrescreva
-`GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` e `GRAFANA_PORT` no `.env` local).
-
-Somente o Grafana publica uma porta no host. Collector, Prometheus, Tempo, Loki e Alloy
-ficam acessíveis apenas na rede do Compose; readiness da API continua dependendo apenas
-de PostgreSQL e SQS. O dashboard provisionado `Distributed Wagering - Processing and
-Outbox` usa exclusivamente métricas de baixa cardinalidade.
-
-A métrica `wagering.sqs.messages.dlq` é uma gauge obtida dos atributos da DLQ real. Ela
-é separada do contador `wagering.sqs.consumer.permanent_failures`, que representa a
-classificação feita pelo consumidor antes do redrive.
-
-## Testes
-
-```bash
-bun run check
-```
-
-`check` verifica primeiro se `package.json` e `bun.lock` estão sincronizados, depois
-executa formatação em modo somente leitura, lint, typecheck, todos os testes, build,
-smoke test de compatibilidade dos pacotes e o scan heurístico de segredos em arquivos
-rastreados. As suítes reais de integração e concorrência continuam opt-in para não
-tocarem dependências sem que isso seja explícito.
-
-Para repetir as verificações da entrega em partes:
-
-```bash
-bun run format:check
-bun run lint
-bun run typecheck
-bun run test:unit
-bun run build
-bun run smoke:packages
-bun run security:scan
-```
-
-Na Fase 4, a integração opt-in contra PostgreSQL real valida a migration em banco
-efêmero (`up/down/up`), constraints, round-trip, rollback atômico e a UoW. Execute-a com
-`RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/financial-persistence.spec.ts`.
-Para incluir também a prova isolada de reversibilidade da migration e os contratos HTTP
-de wallet/aposta, execute a pasta inteira:
-`RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`. A suíte cria e remove um
-banco temporário próprio para a migration; ela nunca desmonta o banco de desenvolvimento.
-Essa mesma suíte também valida a abertura transacional de wallets e a paginação do
-ledger da Fase 5. Os cenários de processamento financeiro e concorrência começam nas
-fases posteriores.
-Na Fase 1, PostgreSQL 18.6 e LocalStack reais são usados para validar startup, health,
-Swagger e filas; os testes automatizados cobrem configuração, erros, auth no-op e o span
-HTTP básico.
-Na Fase 12A, `/health/ready` verifica PostgreSQL e a fila de comandos SQS com deadline,
-`/health/live` continua verificando somente o processo e `/metrics` é o endpoint local
-de métricas; a indisponibilidade do exporter OTLP não falha a operação financeira.
-
-Na Fase 13, cada uma das duas rodadas de `bun run test:concurrency` cria um banco
-PostgreSQL efêmero, três filas FIFO exclusivas e três processos NestJS contra as
-dependências reais já iniciadas pelo Compose. Cada rodada executa as oito provas
-distribuídas obrigatórias — incluindo barreiras de corrida,
-morte por `SIGKILL` depois do commit e antes do ack SQS, dois publishers, referência fora
-de ordem e restart — e remove os processos, banco e filas ao terminar. Execute-a com
-PostgreSQL e LocalStack saudáveis; ela não altera o banco de desenvolvimento nem as filas
-padrão.
-
-O registro da máquina, versões e duração observada das duas rodadas está em
-[docs/DELIVERY.md](docs/DELIVERY.md). A suíte deve ser repetida com PostgreSQL e
-LocalStack saudáveis antes de apresentar o resultado; seus recursos efêmeros não devem
-ser confundidos com o banco ou as filas padrão.
-
-O teste de carga opcional da Fase 16 usa recursos isolados e sobe três processos reais.
-Ele separa hot wallet de muitas wallets, executa warm-up, medição e cooldown e imprime
-throughput, p50/p95/p99, erros, conflitos de lock, lag da outbox, auditoria wallet/ledger
-e as limitações do experimento. Consulte [docs/LOAD_TEST.md](docs/LOAD_TEST.md) e
-execute-o somente após `bun run test:concurrency` estar estável:
-
-```bash
-bun run test:load
-```
-
-O projeto usa NestJS 12 com Fastify e validação Standard Schema/Zod. TypeScript 6.0.2 é
-o maior release aceito por `typescript-eslint@8.69.0` (`<6.1.0`); TypeScript 7 será
-adotado quando o linter declarar compatibilidade, sem desativar o lint tipado.
-
-## Smoke HTTP com cURL e Bruno
-
-Com a API, a migration e a infraestrutura em execução, a coleção cURL cria uma wallet,
-consulta Swagger/health/metrics, executa uma BET, repete a mesma chave, consulta os dois
-identificadores da transação, pagina o ledger, reconcilia e verifica um `404`:
-
-```bash
-bun run smoke:http
-# ou contra outra API:
-BASE_URL=http://localhost:3001 bash tests/http/curl/smoke.sh
-```
-
-O script usa somente `curl`, Bash e Bun (para gerar UUIDs); ele não depende de `jq` e
-não grava respostas no repositório. A coleção está em
-[`tests/http/curl/`](tests/http/curl/).
-
-## Teste manual com Bruno
-
-A coleção OpenCollection versionada fica em `tests/http/bruno`. No Bruno 3+, use
-**Open Collection** e selecione essa pasta (a que contém `opencollection.yml`), depois
-selecione o ambiente `local`. Ela cobre health, Swagger, o envelope uniforme de erro e
-as rotas de wallet, reconciliação e wagering implementadas.
-
-O arquivo `.env` da raiz continua sendo exclusivo do Compose/aplicação. Não coloque
-segredos nos YAMLs do Bruno; quando uma rota futura precisar de credencial, mantenha o
-valor real fora do Git e referencie uma variável local do Bruno.
-
-As rotas síncronas de apostas das Fases 6–7 exigem o header `Idempotency-Key` e ficam em
-`POST /wagering/transactions`, `GET /wagering/transactions/:transactionId` e
-`GET /providers/:providerId/wagering/transactions/:externalTransactionId`. O POST
-aceita `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`; as duas reversões exigem
-`referenceExternalTransactionId`.
-
-O consumidor da Fase 8 inicia junto da aplicação quando `SQS_CONSUMER_ENABLED=true`. Ele
-consome `wager-transactions.fifo` com concorrência limitada, usa long polling e mantém
-visibilidade durante o processamento. O envelope público usa
-`type: "WagerTransactionRequested"` conforme `docs/CHALLENGE.md` e possui `messageId`
-próprio; esse id é a chave da inbox e não deve ser confundido com o `MessageId` de
-transporte do SQS. Uma mensagem válida é apagada somente depois do commit financeiro.
-Mensagens permanentemente inválidas não são apagadas e seguem a redrive policy para a
-DLQ. O schema é estrito e aceita somente o contrato público; o `messageId` também é
-usado como correlation id dentro da aplicação.
-
-Para validar a integração real da Fase 8, com PostgreSQL e LocalStack saudáveis:
-
-```bash
-RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts
-```
-
-O publisher da outbox inicia no Compose quando `SQS_OUTBOX_PUBLISHER_ENABLED=true`. Ele
-reivindica linhas vencidas com lease curto, publica somente em `wager-events.fifo` usando
-`eventId` como deduplication id e `walletId` como group id, e marca a linha somente se o
-lease ainda pertencer à instância. Falhas de SQS usam backoff exponencial com jitter; o
-limite operacional satura o contador de tentativas e mantém o evento pendente para
-recuperação posterior. O estado da outbox continua sendo a fonte da verdade, portanto
-uma publicação após crash pode ser duplicada e deve ser deduplicada pelo consumidor por
-`eventId`.
-
-As opções operacionais são `SQS_OUTBOX_BATCH_SIZE`, `SQS_OUTBOX_POLL_INTERVAL_MS`,
-`SQS_OUTBOX_LEASE_MS`, `SQS_OUTBOX_MAX_ATTEMPTS`,
-`SQS_OUTBOX_RETRY_BASE_DELAY_MS`, `SQS_OUTBOX_RETRY_MAX_DELAY_MS` e
-`SQS_OUTBOX_RETRY_JITTER_PERCENT`.
-
-O worker de referências pendentes inicia no Compose quando
-`PENDING_REFERENCE_WORKER_ENABLED=true`. Ele seleciona somente
-`PENDING_REFERENCE` vencidas com `FOR UPDATE SKIP LOCKED`, incrementa a tentativa no
-mesmo claim e reutiliza o processamento financeiro/lock da wallet. A policy padrão é
-2 s exponencial com jitter de 20%, teto de 5 min, 10 tentativas e TTL de 30 min; no
-limite, uma última revalidação sob lock rejeita com
-`error.wager.reference_not_found` e grava o evento na outbox. As opções são
-`PENDING_REFERENCE_BATCH_SIZE`, `PENDING_REFERENCE_POLL_INTERVAL_MS`,
-`PENDING_REFERENCE_LEASE_MS`, `PENDING_REFERENCE_MAX_ATTEMPTS`,
-`PENDING_REFERENCE_TTL_MS`, `PENDING_REFERENCE_RETRY_BASE_DELAY_MS`,
-`PENDING_REFERENCE_RETRY_MAX_DELAY_MS` e
-`PENDING_REFERENCE_RETRY_JITTER_PERCENT`.
-
-Para provar o worker com PostgreSQL real, incluindo REFUND/ROLLBACK fora de ordem,
-três workers concorrentes, reinício lógico com clock fake e expiração auditável:
-
-```bash
-RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/pending-reference-worker.spec.ts
-```
-
-## Health checks
-
-```text
-GET /health/live
-GET /health/ready
-GET /metrics
-```
-
-Liveness verifica somente o processo. Readiness verifica PostgreSQL e a fila de comandos
-SQS com timeout configurável por `HEALTHCHECK_TIMEOUT_MS`, retorna `503` quando uma
-dependência está indisponível e nunca depende da stack visual. Durante o shutdown,
-readiness também retorna `503`.
-
-## Troubleshooting
-
-- `bun install --frozen-lockfile` falha: use Bun `1.4.0`; não regenere o lockfile com
-  outro runtime.
-- PostgreSQL ou LocalStack não ficam saudáveis: execute `bun run docker:ps`, confira as
-  portas `5432` e `4566`, e veja os logs das dependências.
-- O host não possui Buildx: use `bun run docker:build:classic` e depois
-  `bun run docker:up`, conforme [docker/README.md](docker/README.md).
-- A API inicia, mas a migration não foi aplicada: com a infraestrutura local ativa,
-  execute `bun run migration:run`; integração real cria seus próprios bancos efêmeros.
-- A suíte real é ignorada: `test:integration` exige
-  `RUN_REAL_INTEGRATION_TESTS=true`; `bun run test:concurrency` já habilita a variável
-  própria, mas ainda exige PostgreSQL e LocalStack saudáveis.
-- O overlay de observabilidade pode ser validado com
-  `docker compose --env-file .env -f docker/compose.yaml -f docker/compose.observability.yaml config`;
-  se algum backend não iniciar, consulte os logs do serviço correspondente. A stack
-  visual é opcional e não participa da readiness financeira.
+- Sem Buildx: execute `bun run docker:build:classic` e depois `bun run docker:up`.
+- Dependências não ficam saudáveis: use `bun run docker:ps` e os logs do serviço no
+  Compose; as portas padrão são 5432 (PostgreSQL) e 4566 (LocalStack).
+- API sem tabelas: execute `bun run migration:run` ou reinicie por `bun run docker:start`.
+- Integrações reais ignoradas: inclua `RUN_REAL_INTEGRATION_TESTS=true` antes de
+  `bun run test:integration`.

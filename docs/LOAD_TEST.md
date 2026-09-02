@@ -1,4 +1,4 @@
-# Teste de carga da Fase 16
+# Teste de carga
 
 O comando `bun run test:load` executa um experimento opt-in contra PostgreSQL e
 LocalStack reais. O runner cria um banco temporário, aplica as migrations, cria filas
@@ -8,8 +8,7 @@ são usados.
 
 ## Pré-condição e escopo
 
-A Fase 16 é independente da Fase 15. A única pré-condição é a suíte distribuída
-obrigatória estar estável; valide-a antes da carga:
+A única pré-condição é a suíte distribuída estar estável; valide-a antes da carga:
 
 ```bash
 bun run docker:up:infra
@@ -19,7 +18,7 @@ bun run test:load
 
 O runner usa somente `BET` HTTP com identificadores únicos e mantém o lock por wallet,
 idempotência, ledger, transactional outbox e constraints existentes. Não há ajuste de
-consistência para aumentar RPS. A Fase 15 (OIDC) continua fora do experimento.
+consistência para aumentar RPS. Autenticação não faz parte do experimento.
 
 ## Metodologia
 
@@ -76,7 +75,7 @@ bun run test:load
 Para guardar a evidência sem sujar o worktree:
 
 ```bash
-LOAD_REPORT_PATH=/tmp/phase16-load.json bun run test:load
+LOAD_REPORT_PATH=/tmp/wagering-load.json bun run test:load
 ```
 
 O pool por processo é o padrão do `pg` usado pelo TypeORM (`max = 10`); o relatório

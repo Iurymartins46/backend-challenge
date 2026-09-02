@@ -2,7 +2,7 @@
 
 ## Estratégia
 
-OpenTelemetry começa na Fase 1, antes do bootstrap do NestJS. Isso permite carregar
+OpenTelemetry inicia antes do bootstrap do NestJS. Isso permite carregar
 auto-instrumentação antes dos módulos que ela precisa observar.
 
 A base inicial contém:
@@ -15,15 +15,13 @@ A base inicial contém:
 - correlation id compartilhado entre HTTP, SQS, logs e eventos;
 - desligamento ordenado do SDK.
 
-Na subfase 12A, o comportamento é provado com exporter in-memory, endpoint OTLP
-indisponível e `/metrics` em formato Prometheus servido pela própria API. A subfase 12B
-adiciona o overlay local que recebe traces no Collector, persiste-os no Tempo e
-provisiona Prometheus, Loki, Alloy e Grafana sem tornar esses serviços dependências do
-caminho financeiro.
+O comportamento é provado com exporter in-memory, endpoint OTLP indisponível e
+`/metrics` em formato Prometheus servido pela própria API. O overlay local recebe traces
+no Collector, persiste-os no Tempo e provisiona Prometheus, Loki, Alloy e Grafana sem
+tornar esses serviços dependências do caminho financeiro.
 
-As fases de domínio adicionam spans e métricas de negócio no momento em que cada fluxo
-é implementado. A fase dedicada à observabilidade completa métricas, redaction, health
-e dashboards; não posterga toda a instrumentação para o final.
+Spans e métricas de negócio são adicionados junto do fluxo que observam. A instrumentação
+não é postergada para o final do desenvolvimento.
 
 ## Sinais
 
@@ -61,7 +59,7 @@ API/workers ──JSON stdout──> Grafana Alloy ─────────�
 ## Docker
 
 - `docker/compose.yaml`: aplicação, PostgreSQL e LocalStack;
-- `docker/compose.observability.yaml`: overlay opcional da subfase 12B;
+- `docker/compose.observability.yaml`: overlay opcional de observabilidade;
 - `docker/observability/`: Collector, Prometheus, Tempo, Loki, Alloy e provisioning do
   Grafana.
 
@@ -89,6 +87,6 @@ mensagem e evento ficam disponíveis em logs/traces, mas nunca são labels.
 ## Risco Bun/OpenTelemetry
 
 O SDK JavaScript é direcionado ao ecossistema Node.js e a compatibilidade de cada
-pacote sob Bun deve ser provada cedo. A Fase 1 inclui smoke test e trava versões no
+pacote sob Bun deve ser provada cedo. O projeto inclui smoke test e trava versões no
 lockfile. Logs JSON e métricas obrigatórias não devem ser sacrificados caso uma
 instrumentação automática específica seja incompatível.
