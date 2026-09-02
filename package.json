@@ -21,7 +21,7 @@
     "test:integration": "bun test tests/integration --max-concurrency=1",
     "test:concurrency": "RUN_REAL_CONCURRENCY_TESTS=true bun test tests/concurrency --max-concurrency=1",
     "lockfile:check": "bun install --frozen-lockfile --lockfile-only",
-    "check": "bun run lockfile:check && bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run smoke:packages",
+    "check": "bun run lockfile:check && bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run smoke:packages && bun run security:scan",
     "docker:config": "docker compose --env-file .env -f docker/compose.yaml config --quiet",
     "docker:build": "docker compose --env-file .env -f docker/compose.yaml build api",
     "docker:build:classic": "COMPOSE_DOCKER_CLI_BUILD=0 DOCKER_BUILDKIT=0 docker compose --env-file .env -f docker/compose.yaml build api",
@@ -36,7 +36,9 @@
     "migration:revert": "bun ./node_modules/typeorm/cli.js migration:revert -d src/infrastructure/database/data-source.ts",
     "migration:show": "bun ./node_modules/typeorm/cli.js migration:show -d src/infrastructure/database/data-source.ts",
     "migration:generate": "bun scripts/generate-migration.ts",
-    "smoke:packages": "bun tests/smoke/packages.ts"
+    "smoke:packages": "bun tests/smoke/packages.ts",
+    "smoke:http": "bash tests/http/curl/smoke.sh",
+    "security:scan": "bash scripts/security-scan.sh"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1123.0",
