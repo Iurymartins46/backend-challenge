@@ -13,6 +13,12 @@ export interface SqsReceiveOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface SqsPublishOptions {
+  readonly messageBody: string;
+  readonly messageGroupId: string;
+  readonly messageDeduplicationId: string;
+}
+
 export interface SqsQueuePort {
   receive(queueName: string, options: SqsReceiveOptions): Promise<readonly SqsTransportMessage[]>;
   delete(queueName: string, receiptHandle: string): Promise<void>;
@@ -21,4 +27,5 @@ export interface SqsQueuePort {
     receiptHandle: string,
     visibilityTimeoutSeconds: number,
   ): Promise<void>;
+  publish(queueName: string, options: SqsPublishOptions): Promise<void>;
 }

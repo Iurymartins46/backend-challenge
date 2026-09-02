@@ -117,6 +117,10 @@ class FakeQueue implements SqsQueuePort {
     this.visibilityChanges.push({ receiptHandle, timeout: visibilityTimeoutSeconds });
     return Promise.resolve();
   }
+
+  publish(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 function options(overrides: Partial<SqsCommandConsumerOptions> = {}): SqsCommandConsumerOptions {

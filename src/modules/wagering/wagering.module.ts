@@ -9,18 +9,28 @@ import {
 } from '../../infrastructure/messaging/sqs-command.consumer';
 import { SqsConsumerMetrics } from '../../infrastructure/messaging/sqs-consumer.metrics';
 import { SqsWagerCommandHandler } from '../../infrastructure/messaging/sqs-command-handler';
+import {
+  OutboxPublisher,
+  type OutboxPublisherOptions,
+} from '../../infrastructure/messaging/outbox.publisher';
+import { OutboxPublisherMetrics } from '../../infrastructure/messaging/outbox-publisher.metrics';
 import { SQS_QUEUE_PORT } from '../../infrastructure/messaging/sqs.module';
 import type { SqsQueuePort } from '../../infrastructure/messaging/sqs-queue.port';
 import { SqsModule } from '../../infrastructure/messaging/sqs.module';
 import { GetWagerTransactionUseCase, ProcessWagerTransactionUseCase } from './application';
 import { FINANCIAL_UNIT_OF_WORK, type FinancialUnitOfWorkPort } from './application/ports';
 import { RandomIdGenerator, SystemClock, type Clock, type IdGenerator } from './domain';
+import { ExponentialRetryPolicy } from './domain/retry-policy';
 import { WageringController } from './wagering.controller';
 
 const WAGER_ID_GENERATOR = Symbol('WAGER_ID_GENERATOR');
 const WAGER_CLOCK = Symbol('WAGER_CLOCK');
+const OUTBOX_ID_GENERATOR = Symbol('OUTBOX_ID_GENERATOR');
+const OUTBOX_CLOCK = Symbol('OUTBOX_CLOCK');
 export const SQS_COMMAND_CONSUMER_OPTIONS = Symbol('SQS_COMMAND_CONSUMER_OPTIONS');
 export const SQS_CONSUMER_METRICS = Symbol('SQS_CONSUMER_METRICS');
+export const SQS_OUTBOX_PUBLISHER_OPTIONS = Symbol('SQS_OUTBOX_PUBLISHER_OPTIONS');
+export const SQS_OUTBOX_PUBLISHER_METRICS = Symbol('SQS_OUTBOX_PUBLISHER_METRICS');
 
 @Module({
   imports: [ConfigModule, DatabaseModule, SqsModule],
@@ -32,6 +42,14 @@ export const SQS_CONSUMER_METRICS = Symbol('SQS_CONSUMER_METRICS');
     },
     {
       provide: WAGER_CLOCK,
+      useFactory: (): Clock => new SystemClock(),
+    },
+    {
+      provide: OUTBOX_ID_GENERATOR,
+      useFactory: (): IdGenerator => new RandomIdGenerator(),
+    },
+    {
+      provide: OUTBOX_CLOCK,
       useFactory: (): Clock => new SystemClock(),
     },
     {
@@ -67,6 +85,28 @@ export const SQS_CONSUMER_METRICS = Symbol('SQS_CONSUMER_METRICS');
       useFactory: (): SqsConsumerMetrics => new SqsConsumerMetrics(),
     },
     {
+      provide: SQS_OUTBOX_PUBLISHER_OPTIONS,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<AppConfig, true>): OutboxPublisherOptions => ({
+        enabled: config.get('messaging.outbox.enabled', { infer: true }),
+        eventsQueueName: config.get('messaging.eventsQueueName', { infer: true }),
+        batchSize: config.get('messaging.outbox.batchSize', { infer: true }),
+        pollIntervalMs: config.get('messaging.outbox.pollIntervalMs', { infer: true }),
+        leaseDurationMs: config.get('messaging.outbox.leaseDurationMs', { infer: true }),
+        shutdownTimeoutMs: config.get('messaging.outbox.shutdownTimeoutMs', { infer: true }),
+        retryPolicy: new ExponentialRetryPolicy({
+          maxAttempts: config.get('messaging.outbox.maxAttempts', { infer: true }),
+          baseDelayMs: config.get('messaging.outbox.retryBaseDelayMs', { infer: true }),
+          maxDelayMs: config.get('messaging.outbox.retryMaxDelayMs', { infer: true }),
+          jitterRatio: config.get('messaging.outbox.retryJitterRatio', { infer: true }),
+        }),
+      }),
+    },
+    {
+      provide: SQS_OUTBOX_PUBLISHER_METRICS,
+      useFactory: (): OutboxPublisherMetrics => new OutboxPublisherMetrics(),
+    },
+    {
       provide: SqsWagerCommandHandler,
       inject: [ProcessWagerTransactionUseCase, SQS_COMMAND_CONSUMER_OPTIONS, WAGER_CLOCK],
       useFactory: (
@@ -89,6 +129,25 @@ export const SQS_CONSUMER_METRICS = Symbol('SQS_CONSUMER_METRICS');
         options: SqsCommandConsumerOptions,
         metrics: SqsConsumerMetrics,
       ) => new SqsCommandConsumer(queue, handler, options, metrics),
+    },
+    {
+      provide: OutboxPublisher,
+      inject: [
+        SQS_QUEUE_PORT,
+        FINANCIAL_UNIT_OF_WORK,
+        OUTBOX_CLOCK,
+        OUTBOX_ID_GENERATOR,
+        SQS_OUTBOX_PUBLISHER_OPTIONS,
+        SQS_OUTBOX_PUBLISHER_METRICS,
+      ],
+      useFactory: (
+        queue: SqsQueuePort,
+        unitOfWork: FinancialUnitOfWorkPort,
+        clock: Clock,
+        idGenerator: IdGenerator,
+        options: OutboxPublisherOptions,
+        metrics: OutboxPublisherMetrics,
+      ) => new OutboxPublisher(queue, unitOfWork, clock, idGenerator, options, metrics),
     },
   ],
 })

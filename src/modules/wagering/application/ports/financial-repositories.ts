@@ -68,4 +68,32 @@ export interface OutboxMessageRepositoryPort {
   findById(id: string): Promise<OutboxMessage | null>;
   insert(message: OutboxMessage): Promise<OutboxMessage>;
   save(message: OutboxMessage): Promise<OutboxMessage>;
+  claimDue?(input: OutboxClaimInput): Promise<readonly OutboxMessage[]>;
+  markPublishedIfOwned?(input: OutboxLeaseMutationInput): Promise<boolean>;
+  saveRetryIfOwned?(input: OutboxRetryMutationInput): Promise<boolean>;
+  measurePending?(now: Date): Promise<OutboxPendingMetrics>;
+}
+
+export interface OutboxClaimInput {
+  readonly now: Date;
+  readonly limit: number;
+  readonly owner: string;
+  readonly leaseUntil: Date;
+}
+
+export interface OutboxLeaseMutationInput {
+  readonly id: string;
+  readonly owner: string;
+  readonly now: Date;
+}
+
+export interface OutboxRetryMutationInput {
+  readonly message: OutboxMessage;
+  readonly owner: string;
+  readonly now: Date;
+}
+
+export interface OutboxPendingMetrics {
+  readonly pendingCount: number;
+  readonly lagMs: number;
 }

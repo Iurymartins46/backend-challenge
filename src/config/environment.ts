@@ -25,6 +25,15 @@ export interface RawEnvironment {
   SQS_VISIBILITY_TIMEOUT_SECONDS?: unknown;
   SQS_VISIBILITY_HEARTBEAT_SECONDS?: unknown;
   SQS_SHUTDOWN_TIMEOUT_MS?: unknown;
+  SQS_OUTBOX_PUBLISHER_ENABLED?: unknown;
+  SQS_OUTBOX_BATCH_SIZE?: unknown;
+  SQS_OUTBOX_POLL_INTERVAL_MS?: unknown;
+  SQS_OUTBOX_LEASE_MS?: unknown;
+  SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS?: unknown;
+  SQS_OUTBOX_MAX_ATTEMPTS?: unknown;
+  SQS_OUTBOX_RETRY_BASE_DELAY_MS?: unknown;
+  SQS_OUTBOX_RETRY_MAX_DELAY_MS?: unknown;
+  SQS_OUTBOX_RETRY_JITTER_PERCENT?: unknown;
   AUTH_MODE?: unknown;
   SWAGGER_ENABLED?: unknown;
   OTEL_ENABLED?: unknown;
@@ -55,6 +64,15 @@ export interface ValidatedEnvironment {
   SQS_VISIBILITY_TIMEOUT_SECONDS: number;
   SQS_VISIBILITY_HEARTBEAT_SECONDS: number;
   SQS_SHUTDOWN_TIMEOUT_MS: number;
+  SQS_OUTBOX_PUBLISHER_ENABLED: boolean;
+  SQS_OUTBOX_BATCH_SIZE: number;
+  SQS_OUTBOX_POLL_INTERVAL_MS: number;
+  SQS_OUTBOX_LEASE_MS: number;
+  SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS: number;
+  SQS_OUTBOX_MAX_ATTEMPTS: number;
+  SQS_OUTBOX_RETRY_BASE_DELAY_MS: number;
+  SQS_OUTBOX_RETRY_MAX_DELAY_MS: number;
+  SQS_OUTBOX_RETRY_JITTER_PERCENT: number;
   AUTH_MODE: AuthMode;
   SWAGGER_ENABLED: boolean;
   OTEL_ENABLED: boolean;
@@ -86,6 +104,15 @@ const defaults = {
   SQS_VISIBILITY_TIMEOUT_SECONDS: '30',
   SQS_VISIBILITY_HEARTBEAT_SECONDS: '10',
   SQS_SHUTDOWN_TIMEOUT_MS: '10000',
+  SQS_OUTBOX_PUBLISHER_ENABLED: 'false',
+  SQS_OUTBOX_BATCH_SIZE: '10',
+  SQS_OUTBOX_POLL_INTERVAL_MS: '1000',
+  SQS_OUTBOX_LEASE_MS: '30000',
+  SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS: '10000',
+  SQS_OUTBOX_MAX_ATTEMPTS: '10',
+  SQS_OUTBOX_RETRY_BASE_DELAY_MS: '1000',
+  SQS_OUTBOX_RETRY_MAX_DELAY_MS: '300000',
+  SQS_OUTBOX_RETRY_JITTER_PERCENT: '20',
   AUTH_MODE: 'none',
   SWAGGER_ENABLED: 'true',
   OTEL_ENABLED: 'false',
@@ -133,6 +160,15 @@ function parsePositiveInteger(value: string, key: string, errors: string[]): num
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
     errors.push(`${key} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: string, key: string, errors: string[]): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    errors.push(`${key} must be a non-negative integer`);
   }
 
   return parsed;
@@ -266,11 +302,64 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     'SQS_SHUTDOWN_TIMEOUT_MS',
     errors,
   );
+  const sqsOutboxPublisherEnabled = parseBoolean(
+    valueOrDefault(raw.SQS_OUTBOX_PUBLISHER_ENABLED, 'SQS_OUTBOX_PUBLISHER_ENABLED'),
+    'SQS_OUTBOX_PUBLISHER_ENABLED',
+    errors,
+  );
+  const sqsOutboxBatchSize = parseIntegerInRange(
+    valueOrDefault(raw.SQS_OUTBOX_BATCH_SIZE, 'SQS_OUTBOX_BATCH_SIZE'),
+    'SQS_OUTBOX_BATCH_SIZE',
+    1,
+    10,
+    errors,
+  );
+  const sqsOutboxPollIntervalMs = parsePositiveInteger(
+    valueOrDefault(raw.SQS_OUTBOX_POLL_INTERVAL_MS, 'SQS_OUTBOX_POLL_INTERVAL_MS'),
+    'SQS_OUTBOX_POLL_INTERVAL_MS',
+    errors,
+  );
+  const sqsOutboxLeaseMs = parsePositiveInteger(
+    valueOrDefault(raw.SQS_OUTBOX_LEASE_MS, 'SQS_OUTBOX_LEASE_MS'),
+    'SQS_OUTBOX_LEASE_MS',
+    errors,
+  );
+  const sqsOutboxShutdownTimeoutMs = parsePositiveInteger(
+    valueOrDefault(raw.SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS, 'SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS'),
+    'SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS',
+    errors,
+  );
+  const sqsOutboxMaxAttempts = parsePositiveInteger(
+    valueOrDefault(raw.SQS_OUTBOX_MAX_ATTEMPTS, 'SQS_OUTBOX_MAX_ATTEMPTS'),
+    'SQS_OUTBOX_MAX_ATTEMPTS',
+    errors,
+  );
+  const sqsOutboxRetryBaseDelayMs = parseNonNegativeInteger(
+    valueOrDefault(raw.SQS_OUTBOX_RETRY_BASE_DELAY_MS, 'SQS_OUTBOX_RETRY_BASE_DELAY_MS'),
+    'SQS_OUTBOX_RETRY_BASE_DELAY_MS',
+    errors,
+  );
+  const sqsOutboxRetryMaxDelayMs = parsePositiveInteger(
+    valueOrDefault(raw.SQS_OUTBOX_RETRY_MAX_DELAY_MS, 'SQS_OUTBOX_RETRY_MAX_DELAY_MS'),
+    'SQS_OUTBOX_RETRY_MAX_DELAY_MS',
+    errors,
+  );
+  const sqsOutboxRetryJitterPercent = parseIntegerInRange(
+    valueOrDefault(raw.SQS_OUTBOX_RETRY_JITTER_PERCENT, 'SQS_OUTBOX_RETRY_JITTER_PERCENT'),
+    'SQS_OUTBOX_RETRY_JITTER_PERCENT',
+    0,
+    100,
+    errors,
+  );
 
   if (sqsVisibilityHeartbeatSeconds >= sqsVisibilityTimeoutSeconds) {
     errors.push(
       'SQS_VISIBILITY_HEARTBEAT_SECONDS must be lower than SQS_VISIBILITY_TIMEOUT_SECONDS',
     );
+  }
+
+  if (sqsOutboxRetryMaxDelayMs < sqsOutboxRetryBaseDelayMs) {
+    errors.push('SQS_OUTBOX_RETRY_MAX_DELAY_MS must be greater than or equal to the base delay');
   }
 
   if (new Set([commandQueueName, commandDlqName, eventsQueueName]).size !== 3) {
@@ -319,6 +408,15 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     SQS_VISIBILITY_TIMEOUT_SECONDS: sqsVisibilityTimeoutSeconds,
     SQS_VISIBILITY_HEARTBEAT_SECONDS: sqsVisibilityHeartbeatSeconds,
     SQS_SHUTDOWN_TIMEOUT_MS: sqsShutdownTimeoutMs,
+    SQS_OUTBOX_PUBLISHER_ENABLED: sqsOutboxPublisherEnabled,
+    SQS_OUTBOX_BATCH_SIZE: sqsOutboxBatchSize,
+    SQS_OUTBOX_POLL_INTERVAL_MS: sqsOutboxPollIntervalMs,
+    SQS_OUTBOX_LEASE_MS: sqsOutboxLeaseMs,
+    SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS: sqsOutboxShutdownTimeoutMs,
+    SQS_OUTBOX_MAX_ATTEMPTS: sqsOutboxMaxAttempts,
+    SQS_OUTBOX_RETRY_BASE_DELAY_MS: sqsOutboxRetryBaseDelayMs,
+    SQS_OUTBOX_RETRY_MAX_DELAY_MS: sqsOutboxRetryMaxDelayMs,
+    SQS_OUTBOX_RETRY_JITTER_PERCENT: sqsOutboxRetryJitterPercent,
     AUTH_MODE: authMode as AuthMode,
     SWAGGER_ENABLED: swaggerEnabled,
     OTEL_ENABLED: otelEnabled,

@@ -33,6 +33,17 @@ export interface AppConfig {
     visibilityTimeoutSeconds: number;
     visibilityHeartbeatSeconds: number;
     shutdownTimeoutMs: number;
+    outbox: {
+      enabled: boolean;
+      batchSize: number;
+      pollIntervalMs: number;
+      leaseDurationMs: number;
+      shutdownTimeoutMs: number;
+      maxAttempts: number;
+      retryBaseDelayMs: number;
+      retryMaxDelayMs: number;
+      retryJitterRatio: number;
+    };
   };
   observability: {
     enabled: boolean;
@@ -80,6 +91,17 @@ export function configuration(): AppConfig {
       visibilityTimeoutSeconds: env.SQS_VISIBILITY_TIMEOUT_SECONDS,
       visibilityHeartbeatSeconds: env.SQS_VISIBILITY_HEARTBEAT_SECONDS,
       shutdownTimeoutMs: env.SQS_SHUTDOWN_TIMEOUT_MS,
+      outbox: {
+        enabled: env.SQS_OUTBOX_PUBLISHER_ENABLED,
+        batchSize: env.SQS_OUTBOX_BATCH_SIZE,
+        pollIntervalMs: env.SQS_OUTBOX_POLL_INTERVAL_MS,
+        leaseDurationMs: env.SQS_OUTBOX_LEASE_MS,
+        shutdownTimeoutMs: env.SQS_OUTBOX_SHUTDOWN_TIMEOUT_MS,
+        maxAttempts: env.SQS_OUTBOX_MAX_ATTEMPTS,
+        retryBaseDelayMs: env.SQS_OUTBOX_RETRY_BASE_DELAY_MS,
+        retryMaxDelayMs: env.SQS_OUTBOX_RETRY_MAX_DELAY_MS,
+        retryJitterRatio: env.SQS_OUTBOX_RETRY_JITTER_PERCENT / 100,
+      },
     },
     observability: {
       enabled: env.OTEL_ENABLED,

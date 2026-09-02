@@ -64,6 +64,11 @@ Eventos são gravados na mesma transação financeira. Publishers:
 Morte após publicar e antes de marcar pode duplicar. `eventId` permanece igual e deve
 ser usado pela inbox do consumidor externo.
 
+O limite operacional de tentativas não envia o evento para descarte: depois do teto, o
+contador fica saturado e o próximo retry usa o atraso máximo configurado. Assim, uma
+indisponibilidade prolongada não remove um evento confirmado da outbox. A quantidade de
+pendências e o lag do evento mais antigo são medidos pelo publisher.
+
 ## Referências fora de ordem
 
 Transações dependentes ausentes ficam `PENDING_REFERENCE`. O worker usa backoff

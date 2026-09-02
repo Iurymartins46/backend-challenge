@@ -5,8 +5,8 @@
 > O bootstrap da Fase 1, o domínio puro da Fase 3, a persistência da Fase 4, a
 > vertical HTTP de wallet/ledger, o processamento HTTP síncrono de BET/WIN/LOSS da
 > Fase 6, de REFUND/ROLLBACK da Fase 7 e o consumidor SQS/inbox da Fase 8 já existem;
-> o worker agendado de referências e o publisher da outbox permanecem nas fases
-> seguintes.
+> o publisher da outbox da Fase 9 já existe; o worker agendado de referências permanece
+> na fase seguinte.
 
 ## 1. Objetivo arquitetural
 
@@ -119,6 +119,13 @@ Publishers da outbox usam claim com lease e `FOR UPDATE SKIP LOCKED`. Publicaç�
 at-least-once: morte após publicar e antes de marcar pode duplicar o evento; `eventId`
 estável permite deduplicação no consumidor.
 
+O claim é confirmado em uma transação curta com owner e `locked_until`. A chamada ao SQS
+acontece somente depois desse commit; a marcação de sucesso e o agendamento de retry são
+updates condicionados ao mesmo owner enquanto o lease não expirou. Um publisher parado
+é recuperado quando outro encontra o lease vencido. Falhas usam backoff exponencial com
+jitter; ao atingir o limite operacional, `attempts` fica saturado no teto e o evento
+continua pendente com o atraso máximo, sem descarte silencioso.
+
 Comandos entram em `wager-transactions.fifo`; eventos saem por
 `wager-events.fifo`. Misturar os dois contratos na mesma fila criaria acoplamento e
 risco de o consumidor tratar um evento como comando.
@@ -171,6 +178,10 @@ uso. O consumidor SQS expõe contadores processuais de recebimento, processament
 duplicata, rejeição, redelivery transitória, DLQ, ack e heartbeat; eles são
 diagnósticos e não substituem o estado financeiro no PostgreSQL. A stack visual é
 adicionada depois.
+
+O publisher da outbox expõe contadores processuais de claims, publicações, falhas,
+retries, leases perdidos e os gauges de quantidade pendente e lag. IDs de eventos e
+wallets ficam em logs/traces, não em labels de métricas.
 
 Logs JSON continuam sendo o contrato primário porque o sinal de logs do SDK JavaScript
 do OpenTelemetry ainda tem maturidade inferior a traces e métricas. Telemetria nunca
