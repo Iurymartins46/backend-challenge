@@ -47,6 +47,16 @@ export async function bootstrap(): Promise<void> {
       .setVersion(
         config.get('app.environment', { infer: true }) === 'production' ? '0.1.0' : '0.1.0-dev',
       )
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description:
+            'Required when AUTH_MODE=oidc. Obtain a service token with client credentials.',
+        },
+        'provider-oidc',
+      )
       .addTag('health')
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig, {

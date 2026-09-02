@@ -163,17 +163,25 @@ sinal que precisa de investigação, não uma autorização para modificar dados
 **Trade-off.** Não há reparo automático. Isso aumenta o trabalho operacional em caso de
 incidente, mas preserva auditabilidade e evita que um diagnóstico destrua evidências.
 
-### Contratos HTTP e autenticação como boundary
+### Contratos HTTP e autenticação OIDC como boundary
 
 **Decisão.** DTOs/schema validam a borda, Swagger publica o contrato e erros usam um
-envelope uniforme com códigos estáveis. A identidade de provedor é uma porta; o adapter
-atual `AUTH_MODE=none` é explícito.
+envelope uniforme com códigos estáveis. A identidade de provedor é uma porta:
+`AUTH_MODE=none` é exclusivo de desenvolvimento e `AUTH_MODE=oidc` valida access tokens
+RS256 emitidos por Keycloak. Cada provider usa client credentials, recebe o claim
+`provider_id` e apenas os scopes necessários; a API exige scopes por rota e compara o
+claim ao `providerId` da operação antes de chamar o caso de uso.
 
-**Motivo.** Clientes podem integrar pelo contrato sem depender de mensagens internas.
-A porta de identidade permite adicionar OIDC/JWT sem acoplar o domínio ao mecanismo.
+**Motivo.** Clientes podem integrar pelo contrato sem depender de mensagens internas,
+sem permitir que um provider submeta ou consulte a operação de outro. A porta mantém
+OIDC/JWT fora do domínio financeiro e do caso de uso.
 
-**Trade-off.** O modo atual é apropriado para demonstração e desenvolvimento, não para
-exposição pública. A autenticação deve ser implantada antes de um ambiente não confiável.
+**Trade-off.** A validação fixa RS256 para reduzir superfície de algoritmo no demo. O
+adapter mantém JWKS por cinco minutos; um `kid` desconhecido atualiza uma vez o conjunto
+para acomodar rotação. Enquanto houver chave em cache válida, o IdP não entra no caminho
+de cada requisição; após a expiração, falha/timeout de JWKS é `503` com `Retry-After`,
+e token ausente, inválido ou expirado é `401`. Keycloak está isolado em overlay Compose:
+não participa da readiness financeira, e health/SQS continuam fora da autenticação.
 
 ### Observabilidade não bloqueante
 

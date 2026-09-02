@@ -9,6 +9,9 @@ info:
 http:
   method: GET
   url: '{{baseUrl}}/providers/{{providerId}}/wagering/transactions/{{externalTransactionId}}'
+  auth:
+    type: bearer
+    token: '{{oidcAccessToken}}'
 
 runtime:
   scripts:

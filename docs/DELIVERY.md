@@ -95,6 +95,7 @@ do commit.
 | Observabilidade operacional               | logs JSON, correlation ids, métricas de negócio, gauge real da DLQ, health separado e overlay visual 12B | `tests/unit/logging.spec.ts`, `telemetry.spec.ts`, `health.spec.ts`, `sqs-inbox.spec.ts`, indisponibilidade real, `/metrics` e `docker/observability/` |
 | Teste de carga opcional                   | runner isolado com hot wallet e muitas wallets, três processos, warm-up/medição/cooldown | `scripts/load-test.ts`, [docs/LOAD_TEST.md](LOAD_TEST.md) e execução real abaixo |
 | Contrato HTTP                             | DTOs/schema Zod, Swagger, envelope uniforme de erro                                  | `docs/API_AND_ERRORS.md`, coleção Bruno e `tests/http/curl/smoke.sh`                                                                        |
+| OIDC opcional de providers                | Keycloak em overlay, client credentials, JWKS cache/rotação, scopes e provider binding | `tests/unit/oidc-provider-identity.adapter.spec.ts`, `provider-auth.guard.spec.ts` e fluxo local Keycloak abaixo                            |
 | Schema como última defesa                 | FKs, uniques, checks e trigger append-only                                           | SQL direto em `financial-persistence.spec.ts` e no cenário de constraints distribuído                                                       |
 
 ## Roteiro de demonstração
@@ -150,12 +151,21 @@ documentado `bun run docker:build:classic` construiu a imagem e `bun run docker:
 subiu a API com healthcheck saudável. A duração acima é a observada nesta execução, não
 uma estimativa de desempenho.
 
-## Escopo posterior
+Na Fase 15, o overlay OIDC foi validado com Keycloak 26.7.3 e realm importado. Um token
+`client_credentials` de `provider-a` passou pela API atual executada no host contra as
+dependências Docker e recebeu `404` somente porque a transação de consulta não existia;
+health permaneceu `200`, token ausente/inválido retornou `401` e um POST com
+`providerId=provider-b` retornou `403/error.auth.provider_mismatch`. O rebuild clássico
+da imagem Docker desta fase ficou bloqueado por falha do Bun ao extrair
+`swagger-ui-dist`; não é apresentado como evidência de imagem atualizada.
 
-- OIDC e validação de JWT não foram iniciados; `AUTH_MODE=none` é um modo de
-  desenvolvimento explícito.
+## Autenticação opcional implementada
 
-Esses são os únicos itens planejados ainda não implementados.
+O overlay `docker/compose.oidc.yaml` sobe Keycloak e importa o realm/demo clients. O
+adapter OIDC valida JWT RS256 por issuer, audience, assinatura, expiração e JWKS, aplica
+scopes e bloqueia divergência entre `provider_id` autenticado e `providerId` da operação.
+`AUTH_MODE=none` permanece exclusivamente para desenvolvimento; a execução real do
+overlay e do fluxo client credentials deve ser registrada nesta seção quando realizada.
 
 ## Notas não bloqueantes
 

@@ -1,4 +1,4 @@
-export type AuthMode = 'none';
+export type AuthMode = 'none' | 'oidc';
 export type NodeEnvironment = 'development' | 'test' | 'production';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
@@ -45,6 +45,12 @@ export interface RawEnvironment {
   PENDING_REFERENCE_RETRY_MAX_DELAY_MS?: unknown;
   PENDING_REFERENCE_RETRY_JITTER_PERCENT?: unknown;
   AUTH_MODE?: unknown;
+  OIDC_ISSUER?: unknown;
+  OIDC_JWKS_URI?: unknown;
+  OIDC_AUDIENCE?: unknown;
+  OIDC_PROVIDER_ID_CLAIM?: unknown;
+  OIDC_JWKS_CACHE_TTL_MS?: unknown;
+  OIDC_REQUEST_TIMEOUT_MS?: unknown;
   SWAGGER_ENABLED?: unknown;
   OTEL_ENABLED?: unknown;
   OTEL_SERVICE_NAME?: unknown;
@@ -95,6 +101,12 @@ export interface ValidatedEnvironment {
   PENDING_REFERENCE_RETRY_MAX_DELAY_MS: number;
   PENDING_REFERENCE_RETRY_JITTER_PERCENT: number;
   AUTH_MODE: AuthMode;
+  OIDC_ISSUER: string;
+  OIDC_JWKS_URI: string;
+  OIDC_AUDIENCE: string;
+  OIDC_PROVIDER_ID_CLAIM: string;
+  OIDC_JWKS_CACHE_TTL_MS: number;
+  OIDC_REQUEST_TIMEOUT_MS: number;
   SWAGGER_ENABLED: boolean;
   OTEL_ENABLED: boolean;
   OTEL_SERVICE_NAME: string;
@@ -146,6 +158,12 @@ const defaults = {
   PENDING_REFERENCE_RETRY_MAX_DELAY_MS: '300000',
   PENDING_REFERENCE_RETRY_JITTER_PERCENT: '20',
   AUTH_MODE: 'none',
+  OIDC_ISSUER: 'http://localhost:8080/realms/wagering',
+  OIDC_JWKS_URI: 'http://localhost:8080/realms/wagering/protocol/openid-connect/certs',
+  OIDC_AUDIENCE: 'wagering-api',
+  OIDC_PROVIDER_ID_CLAIM: 'provider_id',
+  OIDC_JWKS_CACHE_TTL_MS: '300000',
+  OIDC_REQUEST_TIMEOUT_MS: '2000',
   SWAGGER_ENABLED: 'true',
   OTEL_ENABLED: 'false',
   OTEL_SERVICE_NAME: 'distributed-wagering-processor',
@@ -471,9 +489,39 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
   }
   const authMode = valueOrDefault(raw.AUTH_MODE, 'AUTH_MODE');
 
-  if (authMode !== 'none') {
-    errors.push('AUTH_MODE is limited to none until the OIDC phase is implemented');
+  if (authMode !== 'none' && authMode !== 'oidc') {
+    errors.push('AUTH_MODE must be none or oidc');
   }
+  const oidcIssuer = parseUrl(
+    valueOrDefault(raw.OIDC_ISSUER, 'OIDC_ISSUER'),
+    'OIDC_ISSUER',
+    errors,
+  );
+  const oidcJwksUri = parseUrl(
+    valueOrDefault(raw.OIDC_JWKS_URI, 'OIDC_JWKS_URI'),
+    'OIDC_JWKS_URI',
+    errors,
+  );
+  const oidcAudience = parseNonEmptyString(
+    valueOrDefault(raw.OIDC_AUDIENCE, 'OIDC_AUDIENCE'),
+    'OIDC_AUDIENCE',
+    errors,
+  );
+  const oidcProviderIdClaim = parseNonEmptyString(
+    valueOrDefault(raw.OIDC_PROVIDER_ID_CLAIM, 'OIDC_PROVIDER_ID_CLAIM'),
+    'OIDC_PROVIDER_ID_CLAIM',
+    errors,
+  );
+  const oidcJwksCacheTtlMs = parsePositiveInteger(
+    valueOrDefault(raw.OIDC_JWKS_CACHE_TTL_MS, 'OIDC_JWKS_CACHE_TTL_MS'),
+    'OIDC_JWKS_CACHE_TTL_MS',
+    errors,
+  );
+  const oidcRequestTimeoutMs = parsePositiveInteger(
+    valueOrDefault(raw.OIDC_REQUEST_TIMEOUT_MS, 'OIDC_REQUEST_TIMEOUT_MS'),
+    'OIDC_REQUEST_TIMEOUT_MS',
+    errors,
+  );
 
   const swaggerEnabled = parseBoolean(
     valueOrDefault(raw.SWAGGER_ENABLED, 'SWAGGER_ENABLED'),
@@ -537,6 +585,12 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     PENDING_REFERENCE_RETRY_MAX_DELAY_MS: pendingReferenceRetryMaxDelayMs,
     PENDING_REFERENCE_RETRY_JITTER_PERCENT: pendingReferenceRetryJitterPercent,
     AUTH_MODE: authMode as AuthMode,
+    OIDC_ISSUER: oidcIssuer,
+    OIDC_JWKS_URI: oidcJwksUri,
+    OIDC_AUDIENCE: oidcAudience,
+    OIDC_PROVIDER_ID_CLAIM: oidcProviderIdClaim,
+    OIDC_JWKS_CACHE_TTL_MS: oidcJwksCacheTtlMs,
+    OIDC_REQUEST_TIMEOUT_MS: oidcRequestTimeoutMs,
     SWAGGER_ENABLED: swaggerEnabled,
     OTEL_ENABLED: otelEnabled,
     OTEL_SERVICE_NAME: valueOrDefault(raw.OTEL_SERVICE_NAME, 'OTEL_SERVICE_NAME'),

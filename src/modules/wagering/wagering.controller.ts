@@ -15,6 +15,7 @@ import {
 import {
   ApiAcceptedResponse,
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiHeader,
@@ -30,6 +31,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { ERROR_CATALOG, ErrorCode } from '../../common/http/error-codes';
 import { ErrorResponseDto } from '../../common/http/error.dto';
+import { ProviderScopes } from '../auth/provider-scopes.decorator';
 import {
   GetWagerTransactionUseCase,
   ProcessWagerTransactionUseCase,
@@ -49,6 +51,7 @@ import {
 } from './presentation/wagering.dto';
 
 @ApiTags('wagering')
+@ApiBearerAuth('provider-oidc')
 @Controller()
 export class WageringController {
   private readonly logger = new Logger(WageringController.name);
@@ -59,6 +62,7 @@ export class WageringController {
   ) {}
 
   @Post('wagering/transactions')
+  @ProviderScopes('wager:write')
   @ApiOperation({ summary: 'Process a wager transaction' })
   @ApiHeader({
     name: 'Idempotency-Key',
@@ -168,6 +172,7 @@ export class WageringController {
   }
 
   @Get('wagering/transactions/:transactionId')
+  @ProviderScopes('wager:read')
   @ApiOperation({ summary: 'Get a wagering transaction by internal id' })
   @ApiParam({ name: 'transactionId', format: 'uuid' })
   @ApiOkResponse({ type: WagerTransactionDetailsDto })
@@ -180,6 +185,7 @@ export class WageringController {
   }
 
   @Get('providers/:providerId/wagering/transactions/:externalTransactionId')
+  @ProviderScopes('wager:read')
   @ApiOperation({ summary: 'Get a wagering transaction by provider external id' })
   @ApiParam({ name: 'providerId' })
   @ApiParam({ name: 'externalTransactionId' })

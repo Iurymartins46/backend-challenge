@@ -9,6 +9,14 @@ export interface AppConfig {
   };
   auth: {
     mode: ValidatedEnvironment['AUTH_MODE'];
+    oidc: {
+      issuer: string;
+      jwksUri: string;
+      audience: string;
+      providerIdClaim: string;
+      jwksCacheTtlMs: number;
+      requestTimeoutMs: number;
+    };
   };
   database: {
     url: string;
@@ -82,6 +90,14 @@ export function configuration(): AppConfig {
     },
     auth: {
       mode: env.AUTH_MODE,
+      oidc: {
+        issuer: env.OIDC_ISSUER,
+        jwksUri: env.OIDC_JWKS_URI,
+        audience: env.OIDC_AUDIENCE,
+        providerIdClaim: env.OIDC_PROVIDER_ID_CLAIM,
+        jwksCacheTtlMs: env.OIDC_JWKS_CACHE_TTL_MS,
+        requestTimeoutMs: env.OIDC_REQUEST_TIMEOUT_MS,
+      },
     },
     database: {
       url: env.DATABASE_URL,

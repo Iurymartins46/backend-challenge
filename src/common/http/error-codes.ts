@@ -4,6 +4,11 @@ export const ErrorCode = {
   RequestNotFound: 'error.request.not_found',
   RequestConflict: 'error.request.conflict',
   RequestIdempotencyKeyRequired: 'error.request.idempotency_key_required',
+  AuthTokenRequired: 'error.auth.token_required',
+  AuthTokenInvalid: 'error.auth.token_invalid',
+  AuthInsufficientScope: 'error.auth.insufficient_scope',
+  AuthProviderMismatch: 'error.auth.provider_mismatch',
+  AuthIdentityProviderUnavailable: 'error.auth.identity_provider_unavailable',
   MoneyInvalidFormat: 'error.money.invalid_format',
   MoneyInvalidScale: 'error.money.invalid_scale',
   MoneyInvalidCurrency: 'error.money.invalid_currency',
@@ -60,6 +65,31 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorCodeDescription>> = 
     status: 400,
     meaning: 'The idempotency key is required.',
     clientAction: 'Send the Idempotency-Key header.',
+  },
+  [ErrorCode.AuthTokenRequired]: {
+    status: 401,
+    meaning: 'A bearer access token is required.',
+    clientAction: 'Obtain a token with the client credentials flow and send it as a Bearer token.',
+  },
+  [ErrorCode.AuthTokenInvalid]: {
+    status: 401,
+    meaning: 'The bearer access token is invalid, expired or cannot be verified.',
+    clientAction: 'Obtain a new token and verify its issuer and audience configuration.',
+  },
+  [ErrorCode.AuthInsufficientScope]: {
+    status: 403,
+    meaning: 'The authenticated provider lacks a required scope.',
+    clientAction: 'Use a client granted the required provider scope.',
+  },
+  [ErrorCode.AuthProviderMismatch]: {
+    status: 403,
+    meaning: 'The authenticated provider does not match the provider in the operation.',
+    clientAction: 'Use the client credentials for the operation provider.',
+  },
+  [ErrorCode.AuthIdentityProviderUnavailable]: {
+    status: 503,
+    meaning: 'The identity provider key set is temporarily unavailable.',
+    clientAction: 'Respect Retry-After before retrying.',
   },
   [ErrorCode.MoneyInvalidFormat]: {
     status: 400,

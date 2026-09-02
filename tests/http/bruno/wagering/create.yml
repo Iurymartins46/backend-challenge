@@ -9,6 +9,9 @@ info:
 http:
   method: POST
   url: '{{baseUrl}}/wagering/transactions'
+  auth:
+    type: bearer
+    token: '{{oidcAccessToken}}'
   headers:
     - name: content-type
       value: application/json

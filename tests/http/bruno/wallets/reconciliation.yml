@@ -9,6 +9,9 @@ info:
 http:
   method: POST
   url: '{{baseUrl}}/wallets/{{walletId}}/reconciliation'
+  auth:
+    type: bearer
+    token: '{{oidcAccessToken}}'
 
 runtime:
   scripts:

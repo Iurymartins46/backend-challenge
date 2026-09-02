@@ -1,0 +1,40 @@
+info:
+  name: Rejeitar provider divergente
+  type: http
+  seq: 2
+  tags:
+    - phase-15
+    - oidc
+
+http:
+  method: POST
+  url: '{{baseUrl}}/wagering/transactions'
+  auth:
+    type: bearer
+    token: '{{oidcAccessToken}}'
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "providerId": "provider-b"
+      }
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: '403'
+    - expression: res.body.errors[0].code
+      operator: eq
+      value: error.auth.provider_mismatch
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Demonstra que o token de `provider-a` não pode submeter uma operação de `provider-b`.
