@@ -71,6 +71,11 @@ Exemplos:
 ```text
 error.request.invalid_json
 error.request.idempotency_key_required
+error.auth.token_required
+error.auth.token_invalid
+error.auth.insufficient_scope
+error.auth.provider_mismatch
+error.auth.identity_provider_unavailable
 error.money.invalid_format
 error.money.invalid_scale
 error.money.invalid_currency
@@ -114,6 +119,11 @@ No Swagger, cada código deve informar:
 | `error.wager.insufficient_funds` | 422 | saldo insuficiente para a BET | não repetir sem mudança de saldo |
 | `error.wager.reference_not_found` | 422 | referência não apareceu dentro do limite | enviar/disponibilizar a referência |
 | `error.infrastructure.dependency_unavailable` | 503 | dependência temporariamente indisponível | respeitar `Retry-After` |
+| `error.auth.token_required` | 401 | Bearer token ausente | obter token por client credentials |
+| `error.auth.token_invalid` | 401 | JWT inválido, expirado ou não verificável | obter token novo e conferir issuer/audience |
+| `error.auth.insufficient_scope` | 403 | client sem scope exigido | usar client com o scope da rota |
+| `error.auth.provider_mismatch` | 403 | claim `provider_id` diverge da operação | usar o client do provider correto |
+| `error.auth.identity_provider_unavailable` | 503 | JWKS indisponível após cache expirar | respeitar `Retry-After` |
 
 As regras de referência também usam os códigos estáveis
 `error.wager.reference_invalid_kind`, `error.wager.reference_context_mismatch` e
@@ -281,3 +291,19 @@ Mapeamento inicial:
 | duplicata/idempotência divergente | `409` |
 | rejeição persistida de domínio | `422` |
 | dependência transitória após retries | `503` |
+
+## 9. OIDC de providers
+
+Com `AUTH_MODE=oidc`, as rotas de wallet e wagering usam Bearer JWT. O adapter aceita
+somente `RS256`, valida assinatura pelo JWKS configurado, `iss`, `aud`, `exp` e, quando
+presente, `nbf`. A chave pública fica em cache por `OIDC_JWKS_CACHE_TTL_MS`; um `kid`
+desconhecido força uma única atualização para suportar rotação. Sem cache válido, timeout
+ou falha do IdP produz `503/error.auth.identity_provider_unavailable`, sem aceitar token
+sem assinatura verificável.
+
+O principal contém `sub`, `provider_id` e `wagering_scopes` (além de `scope` OIDC).
+`POST /wagering/transactions` exige
+`wager:write`; leituras de wagering exigem `wager:read`; escrita e leitura de wallet
+exigem `wallet:write` e `wallet:read`, respectivamente. Rotas que carregam `providerId`
+no body ou path também exigem igualdade exata com o claim. Health e métricas são públicos,
+e comandos SQS não passam pelo guard porque são canal interno confiável.

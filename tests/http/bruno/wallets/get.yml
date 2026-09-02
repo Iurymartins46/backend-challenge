@@ -9,6 +9,9 @@ info:
 http:
   method: GET
   url: '{{baseUrl}}/wallets/{{walletId}}'
+  auth:
+    type: bearer
+    token: '{{oidcAccessToken}}'
 
 runtime:
   scripts:

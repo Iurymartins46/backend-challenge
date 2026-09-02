@@ -112,6 +112,8 @@ coleção cURL em [tests/http/curl](tests/http/curl).
 | `bun run docker:up:build` | Constrói a imagem e inicia a stack base, sem aplicar migrations. |
 | `bun run docker:start` | Constrói, inicia a stack base e aplica migrations; é o atalho recomendado para desenvolvimento local. |
 | `bun run docker:up:observability` | Inicia API, dependências e o overlay opcional de observabilidade. |
+| `bun run docker:up:oidc` | Inicia API, dependências e o overlay opcional Keycloak/OIDC com realm de demonstração. |
+| `bun run docker:oidc:config` | Valida a composição base mais o overlay OIDC usando `.env`. |
 | `bun run docker:up:infra` | Inicia somente PostgreSQL, LocalStack e a criação das filas. |
 | `bun run docker:down` | Para e remove os containers da stack, preservando volumes nomeados. |
 | `bun run docker:ps` | Mostra o estado de todos os serviços do Compose. |
@@ -158,6 +160,42 @@ bun run docker:up:observability
 Grafana fica em `http://localhost:3001` por padrão. A aplicação continua funcional sem
 o overlay: readiness depende apenas de PostgreSQL e SQS. Configuração, sinais e limites
 estão em [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+
+## Autenticação OIDC opcional
+
+O modo padrão é `AUTH_MODE=none`, exclusivamente para desenvolvimento local. Para subir
+o demo protegido com Keycloak, mantenha os valores OIDC do `.env.example` e execute:
+
+```bash
+bun run docker:up:oidc
+```
+
+O Keycloak fica em `http://localhost:8080`, importa o realm `wagering` e fornece dois
+clients de demonstração: `provider-a`/`provider-a-secret` e
+`provider-b`/`provider-b-secret`. Os segredos são deliberadamente públicos apenas para
+o ambiente local e devem ser substituídos por secrets externos em qualquer ambiente
+compartilhado. Se mudar a porta ou domínio do Keycloak, mantenha `KEYCLOAK_HOSTNAME` e
+`OIDC_ISSUER` no mesmo endereço canônico público; apenas `OIDC_JWKS_URI_DOCKER` usa o
+hostname interno do Compose.
+
+Obtenha um token de serviço para o provedor A e envie-o como Bearer token:
+
+```bash
+TOKEN=$(curl -fsS -u provider-a:provider-a-secret \
+  -d grant_type=client_credentials \
+  http://localhost:8080/realms/wagering/protocol/openid-connect/token | \
+  bun -e 'const input = await Bun.stdin.text(); console.log(JSON.parse(input).access_token)')
+curl -i http://localhost:3000/wagering/transactions/00000000-0000-7000-8000-000000000000 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Em `AUTH_MODE=oidc`, a API aceita somente JWTs RS256 com issuer, audience, assinatura,
+expiração e JWKS configurados. Os scopes `wager:read`, `wager:write`, `wallet:read` e
+`wallet:write` protegem as rotas; nas operações que carregam `providerId`, o claim
+`provider_id` precisa ser idêntico ao valor da operação. Health e métricas continuam
+abertos, e SQS permanece canal interno confiável. A indisponibilidade do JWKS retorna
+`503` após expirar o cache; um `kid` novo força uma única atualização, permitindo
+rotação de chaves sem reinício.
 
 ## Documentação
 

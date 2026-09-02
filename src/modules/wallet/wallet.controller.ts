@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -25,6 +26,7 @@ import {
 
 import { ErrorCode } from '../../common/http/error-codes';
 import { ErrorResponseDto } from '../../common/http/error.dto';
+import { ProviderScopes } from '../auth/provider-scopes.decorator';
 import {
   CreateWalletUseCase,
   decodeLedgerCursor,
@@ -46,6 +48,7 @@ import {
 } from './presentation/wallet.dto';
 
 @ApiTags('wallets')
+@ApiBearerAuth('provider-oidc')
 @Controller('wallets')
 export class WalletController {
   constructor(
@@ -56,6 +59,7 @@ export class WalletController {
   ) {}
 
   @Post()
+  @ProviderScopes('wallet:write')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a wallet' })
   @ApiCreatedResponse({ type: WalletResponseDto })
@@ -73,6 +77,7 @@ export class WalletController {
   }
 
   @Get(':walletId')
+  @ProviderScopes('wallet:read')
   @ApiOperation({ summary: 'Get a wallet' })
   @ApiParam({ name: 'walletId', format: 'uuid' })
   @ApiOkResponse({ type: WalletResponseDto })
@@ -85,6 +90,7 @@ export class WalletController {
   }
 
   @Get(':walletId/ledger')
+  @ProviderScopes('wallet:read')
   @ApiOperation({ summary: 'List a wallet ledger page' })
   @ApiParam({ name: 'walletId', format: 'uuid' })
   @ApiQuery({ name: 'cursor', required: false, description: 'Opaque versioned Base64URL cursor.' })
@@ -133,6 +139,7 @@ export class WalletController {
   }
 
   @Post(':walletId/reconciliation')
+  @ProviderScopes('wallet:read')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Reconcile the stored wallet balance with its immutable ledger',

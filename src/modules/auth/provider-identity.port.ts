@@ -1,8 +1,9 @@
 export const PROVIDER_IDENTITY_PORT = Symbol('PROVIDER_IDENTITY_PORT');
 
 export interface ProviderPrincipal {
-  providerId: string;
-  subject: string;
+  readonly providerId: string;
+  readonly subject: string;
+  readonly scopes: readonly string[];
 }
 
 export interface ProviderIdentityPort {

@@ -3,8 +3,15 @@
 ## Unidade
 
 `bun:test` cobre Money, Wallet, WagerTransaction, ledger, estados, referências, failure
-codes, eventos, hash canônico e políticas de retry. Domínio puro não exige NestJS nem
+codes, eventos, hash canônico, políticas de retry e OIDC: JWT ausente/inválido/expirado,
+issuer/audience/assinatura, provider divergente, scopes, cache, rotação e JWKS
+indisponível. Domínio puro não exige NestJS nem
 banco.
+
+O overlay real `bun run docker:up:oidc` sobe Keycloak e importa clients de serviço de
+demo. A prova manual obtém token por client credentials, chama uma rota protegida, repete
+com `provider-b` contra `provider-a` e espera `403/error.auth.provider_mismatch`. O
+Keycloak não é pré-requisito das suítes financeiras PostgreSQL/LocalStack.
 
 ## Integração
 
@@ -106,7 +113,10 @@ duplicados que uma simples comparação de saldo poderia esconder.
 ## Teste manual de HTTP
 
 A coleção OpenCollection para Bruno fica em `tests/http/bruno`. Abra exatamente esse
-diretório no Bruno 3+ e selecione o ambiente `local`. Os arquivos da coleção são
+diretório no Bruno 3+ e selecione `local` para `AUTH_MODE=none`, ou `oidc` após iniciar
+`bun run docker:up:oidc`. No ambiente OIDC, cadastre `oidcClientSecret` como secret local,
+execute primeiro `OIDC/Obter token client credentials` e depois as rotas protegidas; health
+e métricas não usam token. Os arquivos da coleção são
 versionados e fazem parte da entrega de cada rota, enquanto valores secretos permanecem
 fora do Git.
 

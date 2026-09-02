@@ -31,7 +31,7 @@ describe('environment validation', () => {
     expect(() =>
       validateEnvironment({
         PORT: 'not-a-port',
-        AUTH_MODE: 'oidc',
+        AUTH_MODE: 'unsupported',
         OTEL_ENABLED: 'maybe',
         DATABASE_URL: 'not-a-url',
         SQS_COMMAND_QUEUE_NAME: 'not-fifo',

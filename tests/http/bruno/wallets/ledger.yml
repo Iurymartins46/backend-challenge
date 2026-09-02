@@ -9,6 +9,9 @@ info:
 http:
   method: GET
   url: '{{baseUrl}}/wallets/{{walletId}}/ledger?limit=50'
+  auth:
+    type: bearer
+    token: '{{oidcAccessToken}}'
 
 runtime:
   scripts:
