@@ -54,10 +54,32 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      localstack:
+        image: localstack/localstack:4.14.0
+        env:
+          SERVICES: sqs
+          AWS_DEFAULT_REGION: us-east-1
+          DEBUG: 0
+          PERSISTENCE: 0
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -fsS http://localhost:4566/_localstack/health | grep -q 'sqs'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     env:
       DATABASE_URL: postgres://wagering:wagering@localhost:5432/wagering
       RUN_REAL_INTEGRATION_TESTS: 'true'
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_ENDPOINT: http://127.0.0.1:4566
+      SQS_COMMAND_QUEUE_NAME: wager-transactions.fifo
+      SQS_COMMAND_DLQ_NAME: wager-transactions-dlq.fifo
+      SQS_EVENTS_QUEUE_NAME: wager-events.fifo
+      SQS_COMMAND_MAX_RECEIVE_COUNT: '5'
 
     steps:
       - name: Check out repository
@@ -70,6 +92,11 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Initialize LocalStack SQS queues
+        env:
+          AWS_ENDPOINT_URL: http://127.0.0.1:4566
+        run: sh docker/localstack/init-queues.sh
 
       - name: Run PostgreSQL integration tests
         run: bun run test:integration
