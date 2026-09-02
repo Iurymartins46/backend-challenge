@@ -4,7 +4,7 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–11 e a subfase obrigatória 12A implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–13 e a subfase obrigatória 12A implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
@@ -163,6 +163,14 @@ HTTP básico.
 Na Fase 12A, `/health/ready` verifica PostgreSQL e a fila de comandos SQS com deadline,
 `/health/live` continua verificando somente o processo e `/metrics` é o endpoint local
 de métricas; a indisponibilidade do exporter OTLP não falha a operação financeira.
+
+Na Fase 13, `bun run test:concurrency` cria um banco PostgreSQL efêmero, três filas FIFO
+exclusivas e três processos NestJS contra as dependências reais já iniciadas pelo Compose.
+Ela executa as oito provas distribuídas obrigatórias — incluindo barreiras de corrida,
+morte por `SIGKILL` depois do commit e antes do ack SQS, dois publishers, referência fora
+de ordem e restart — e remove os processos, banco e filas ao terminar. Execute-a com
+PostgreSQL e LocalStack saudáveis; ela não altera o banco de desenvolvimento nem as filas
+padrão.
 
 O projeto usa NestJS 12 com Fastify e validação Standard Schema/Zod. TypeScript 6.0.2 é
 o maior release aceito por `typescript-eslint@8.69.0` (`<6.1.0`); TypeScript 7 será

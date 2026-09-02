@@ -5,6 +5,7 @@ import { DatabaseModule } from '../../infrastructure/database/database.module';
 import type { AppConfig } from '../../config/configuration';
 import {
   SqsCommandConsumer,
+  testOnlyTerminateAfterCommitBeforeAck,
   type SqsCommandConsumerOptions,
 } from '../../infrastructure/messaging/sqs-command.consumer';
 import { SqsConsumerMetrics } from '../../infrastructure/messaging/sqs-consumer.metrics';
@@ -172,7 +173,14 @@ export const PENDING_REFERENCE_WORKER_METRICS = Symbol('PENDING_REFERENCE_WORKER
         handler: SqsWagerCommandHandler,
         options: SqsCommandConsumerOptions,
         metrics: SqsConsumerMetrics,
-      ) => new SqsCommandConsumer(queue, handler, options, metrics),
+      ) =>
+        new SqsCommandConsumer(
+          queue,
+          handler,
+          options,
+          metrics,
+          testOnlyTerminateAfterCommitBeforeAck(),
+        ),
     },
     {
       provide: OutboxPublisher,
