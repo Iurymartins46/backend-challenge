@@ -35,6 +35,11 @@ claims concorrentes, visibilidade somente após commit, retry após indisponibil
 SQS e recuperação de lease depois de publicar antes da marcação. Execute-a isoladamente
 com `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/outbox-publisher.spec.ts`.
 
+`pending-reference-worker.spec.ts` adiciona a prova da Fase 10 contra PostgreSQL:
+REFUND/ROLLBACK antes da referência, três workers concorrentes, agenda preservada no
+restart lógico e TTL auditável. O clock fake avança a agenda sem sleeps. Execute-a com
+`RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/pending-reference-worker.spec.ts`.
+
 ## Concorrência distribuída
 
 Um harness sobe pelo menos três processos independentes contra o mesmo banco e filas.

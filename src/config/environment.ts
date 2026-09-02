@@ -34,6 +34,16 @@ export interface RawEnvironment {
   SQS_OUTBOX_RETRY_BASE_DELAY_MS?: unknown;
   SQS_OUTBOX_RETRY_MAX_DELAY_MS?: unknown;
   SQS_OUTBOX_RETRY_JITTER_PERCENT?: unknown;
+  PENDING_REFERENCE_WORKER_ENABLED?: unknown;
+  PENDING_REFERENCE_BATCH_SIZE?: unknown;
+  PENDING_REFERENCE_POLL_INTERVAL_MS?: unknown;
+  PENDING_REFERENCE_LEASE_MS?: unknown;
+  PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS?: unknown;
+  PENDING_REFERENCE_MAX_ATTEMPTS?: unknown;
+  PENDING_REFERENCE_TTL_MS?: unknown;
+  PENDING_REFERENCE_RETRY_BASE_DELAY_MS?: unknown;
+  PENDING_REFERENCE_RETRY_MAX_DELAY_MS?: unknown;
+  PENDING_REFERENCE_RETRY_JITTER_PERCENT?: unknown;
   AUTH_MODE?: unknown;
   SWAGGER_ENABLED?: unknown;
   OTEL_ENABLED?: unknown;
@@ -73,6 +83,16 @@ export interface ValidatedEnvironment {
   SQS_OUTBOX_RETRY_BASE_DELAY_MS: number;
   SQS_OUTBOX_RETRY_MAX_DELAY_MS: number;
   SQS_OUTBOX_RETRY_JITTER_PERCENT: number;
+  PENDING_REFERENCE_WORKER_ENABLED: boolean;
+  PENDING_REFERENCE_BATCH_SIZE: number;
+  PENDING_REFERENCE_POLL_INTERVAL_MS: number;
+  PENDING_REFERENCE_LEASE_MS: number;
+  PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS: number;
+  PENDING_REFERENCE_MAX_ATTEMPTS: number;
+  PENDING_REFERENCE_TTL_MS: number;
+  PENDING_REFERENCE_RETRY_BASE_DELAY_MS: number;
+  PENDING_REFERENCE_RETRY_MAX_DELAY_MS: number;
+  PENDING_REFERENCE_RETRY_JITTER_PERCENT: number;
   AUTH_MODE: AuthMode;
   SWAGGER_ENABLED: boolean;
   OTEL_ENABLED: boolean;
@@ -113,6 +133,16 @@ const defaults = {
   SQS_OUTBOX_RETRY_BASE_DELAY_MS: '1000',
   SQS_OUTBOX_RETRY_MAX_DELAY_MS: '300000',
   SQS_OUTBOX_RETRY_JITTER_PERCENT: '20',
+  PENDING_REFERENCE_WORKER_ENABLED: 'false',
+  PENDING_REFERENCE_BATCH_SIZE: '10',
+  PENDING_REFERENCE_POLL_INTERVAL_MS: '1000',
+  PENDING_REFERENCE_LEASE_MS: '30000',
+  PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS: '10000',
+  PENDING_REFERENCE_MAX_ATTEMPTS: '10',
+  PENDING_REFERENCE_TTL_MS: '1800000',
+  PENDING_REFERENCE_RETRY_BASE_DELAY_MS: '2000',
+  PENDING_REFERENCE_RETRY_MAX_DELAY_MS: '300000',
+  PENDING_REFERENCE_RETRY_JITTER_PERCENT: '20',
   AUTH_MODE: 'none',
   SWAGGER_ENABLED: 'true',
   OTEL_ENABLED: 'false',
@@ -351,6 +381,72 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     100,
     errors,
   );
+  const pendingReferenceWorkerEnabled = parseBoolean(
+    valueOrDefault(raw.PENDING_REFERENCE_WORKER_ENABLED, 'PENDING_REFERENCE_WORKER_ENABLED'),
+    'PENDING_REFERENCE_WORKER_ENABLED',
+    errors,
+  );
+  const pendingReferenceBatchSize = parseIntegerInRange(
+    valueOrDefault(raw.PENDING_REFERENCE_BATCH_SIZE, 'PENDING_REFERENCE_BATCH_SIZE'),
+    'PENDING_REFERENCE_BATCH_SIZE',
+    1,
+    100,
+    errors,
+  );
+  const pendingReferencePollIntervalMs = parsePositiveInteger(
+    valueOrDefault(raw.PENDING_REFERENCE_POLL_INTERVAL_MS, 'PENDING_REFERENCE_POLL_INTERVAL_MS'),
+    'PENDING_REFERENCE_POLL_INTERVAL_MS',
+    errors,
+  );
+  const pendingReferenceLeaseMs = parsePositiveInteger(
+    valueOrDefault(raw.PENDING_REFERENCE_LEASE_MS, 'PENDING_REFERENCE_LEASE_MS'),
+    'PENDING_REFERENCE_LEASE_MS',
+    errors,
+  );
+  const pendingReferenceShutdownTimeoutMs = parsePositiveInteger(
+    valueOrDefault(
+      raw.PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS,
+      'PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS',
+    ),
+    'PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS',
+    errors,
+  );
+  const pendingReferenceMaxAttempts = parsePositiveInteger(
+    valueOrDefault(raw.PENDING_REFERENCE_MAX_ATTEMPTS, 'PENDING_REFERENCE_MAX_ATTEMPTS'),
+    'PENDING_REFERENCE_MAX_ATTEMPTS',
+    errors,
+  );
+  const pendingReferenceTtlMs = parsePositiveInteger(
+    valueOrDefault(raw.PENDING_REFERENCE_TTL_MS, 'PENDING_REFERENCE_TTL_MS'),
+    'PENDING_REFERENCE_TTL_MS',
+    errors,
+  );
+  const pendingReferenceRetryBaseDelayMs = parsePositiveInteger(
+    valueOrDefault(
+      raw.PENDING_REFERENCE_RETRY_BASE_DELAY_MS,
+      'PENDING_REFERENCE_RETRY_BASE_DELAY_MS',
+    ),
+    'PENDING_REFERENCE_RETRY_BASE_DELAY_MS',
+    errors,
+  );
+  const pendingReferenceRetryMaxDelayMs = parsePositiveInteger(
+    valueOrDefault(
+      raw.PENDING_REFERENCE_RETRY_MAX_DELAY_MS,
+      'PENDING_REFERENCE_RETRY_MAX_DELAY_MS',
+    ),
+    'PENDING_REFERENCE_RETRY_MAX_DELAY_MS',
+    errors,
+  );
+  const pendingReferenceRetryJitterPercent = parseIntegerInRange(
+    valueOrDefault(
+      raw.PENDING_REFERENCE_RETRY_JITTER_PERCENT,
+      'PENDING_REFERENCE_RETRY_JITTER_PERCENT',
+    ),
+    'PENDING_REFERENCE_RETRY_JITTER_PERCENT',
+    0,
+    100,
+    errors,
+  );
 
   if (sqsVisibilityHeartbeatSeconds >= sqsVisibilityTimeoutSeconds) {
     errors.push(
@@ -360,6 +456,11 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
 
   if (sqsOutboxRetryMaxDelayMs < sqsOutboxRetryBaseDelayMs) {
     errors.push('SQS_OUTBOX_RETRY_MAX_DELAY_MS must be greater than or equal to the base delay');
+  }
+  if (pendingReferenceRetryMaxDelayMs < pendingReferenceRetryBaseDelayMs) {
+    errors.push(
+      'PENDING_REFERENCE_RETRY_MAX_DELAY_MS must be greater than or equal to the base delay',
+    );
   }
 
   if (new Set([commandQueueName, commandDlqName, eventsQueueName]).size !== 3) {
@@ -417,6 +518,16 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     SQS_OUTBOX_RETRY_BASE_DELAY_MS: sqsOutboxRetryBaseDelayMs,
     SQS_OUTBOX_RETRY_MAX_DELAY_MS: sqsOutboxRetryMaxDelayMs,
     SQS_OUTBOX_RETRY_JITTER_PERCENT: sqsOutboxRetryJitterPercent,
+    PENDING_REFERENCE_WORKER_ENABLED: pendingReferenceWorkerEnabled,
+    PENDING_REFERENCE_BATCH_SIZE: pendingReferenceBatchSize,
+    PENDING_REFERENCE_POLL_INTERVAL_MS: pendingReferencePollIntervalMs,
+    PENDING_REFERENCE_LEASE_MS: pendingReferenceLeaseMs,
+    PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS: pendingReferenceShutdownTimeoutMs,
+    PENDING_REFERENCE_MAX_ATTEMPTS: pendingReferenceMaxAttempts,
+    PENDING_REFERENCE_TTL_MS: pendingReferenceTtlMs,
+    PENDING_REFERENCE_RETRY_BASE_DELAY_MS: pendingReferenceRetryBaseDelayMs,
+    PENDING_REFERENCE_RETRY_MAX_DELAY_MS: pendingReferenceRetryMaxDelayMs,
+    PENDING_REFERENCE_RETRY_JITTER_PERCENT: pendingReferenceRetryJitterPercent,
     AUTH_MODE: authMode as AuthMode,
     SWAGGER_ENABLED: swaggerEnabled,
     OTEL_ENABLED: otelEnabled,

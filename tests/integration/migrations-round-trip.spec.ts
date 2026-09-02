@@ -61,14 +61,22 @@ integration('financial schema migrations', () => {
       throw new Error('The isolated migration database was not initialized.');
     }
 
-    expect(await migrationDataSource.runMigrations()).toHaveLength(1);
+    expect(await migrationDataSource.runMigrations()).toHaveLength(2);
     expect(await tableNames(migrationDataSource)).toEqual(expectedTableNames);
+
+    await migrationDataSource.undoLastMigration();
+    expect(await pendingReferenceWorkerColumns(migrationDataSource)).toEqual([]);
 
     await migrationDataSource.undoLastMigration();
     expect(await tableNames(migrationDataSource)).toEqual([]);
 
-    expect(await migrationDataSource.runMigrations()).toHaveLength(1);
+    expect(await migrationDataSource.runMigrations()).toHaveLength(2);
     expect(await tableNames(migrationDataSource)).toEqual(expectedTableNames);
+    expect(await pendingReferenceWorkerColumns(migrationDataSource)).toEqual([
+      'reference_attempts',
+      'reference_locked_by',
+      'reference_locked_until',
+    ]);
   });
 });
 
@@ -90,6 +98,18 @@ async function tableNames(dataSource: DataSource): Promise<string[]> {
      ORDER BY table_name`,
   );
   return rows.map((row) => row.table_name);
+}
+
+async function pendingReferenceWorkerColumns(dataSource: DataSource): Promise<string[]> {
+  const rows = await dataSource.query<Array<{ column_name: string }>>(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'wager_transactions'
+       AND column_name IN ('reference_attempts', 'reference_locked_by', 'reference_locked_until')
+     ORDER BY column_name`,
+  );
+  return rows.map((row) => row.column_name);
 }
 
 if (!runRealIntegration) {
