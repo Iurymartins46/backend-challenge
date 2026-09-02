@@ -19,6 +19,7 @@ export type DomainErrorCode =
   | 'error.wager.reference_invalid_kind'
   | 'error.wager.reference_context_mismatch'
   | 'error.wager.reversal_already_processed'
+  | 'error.messaging.inbox_payload_conflict'
   | 'error.infrastructure.dependency_unavailable'
   | 'error.infrastructure.internal_error';
 
@@ -223,6 +224,15 @@ export class DependencyUnavailableError extends DomainError {
     super(
       'A required database dependency is temporarily unavailable.',
       'error.infrastructure.dependency_unavailable',
+    );
+  }
+}
+
+export class InboxPayloadConflictError extends DomainError {
+  constructor() {
+    super(
+      'The application message id was reused with another business payload.',
+      'error.messaging.inbox_payload_conflict',
     );
   }
 }

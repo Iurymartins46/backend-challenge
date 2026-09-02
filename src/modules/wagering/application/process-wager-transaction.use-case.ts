@@ -4,6 +4,8 @@ import {
   DomainError,
   DomainInvariantError,
   ExternalTransactionConflictError,
+  InboxMessage,
+  InboxPayloadConflictError,
   IdempotencyPayloadConflictError,
   isBusinessFailureCode,
   LedgerDirection,
@@ -97,6 +99,7 @@ export class ProcessWagerTransactionUseCase {
     const correlationId = input.correlationId?.trim() || undefined;
 
     return this.unitOfWork.transaction(async (unitOfWork) => {
+      const inboxMessage = await this.receiveInboxMessage(unitOfWork, input, payloadHash);
       let pendingTransaction: WagerTransaction | undefined;
       let idempotentReplay = false;
 
@@ -110,7 +113,11 @@ export class ProcessWagerTransactionUseCase {
         }
 
         if (existingByKey.status !== WagerTransactionStatus.PendingReference) {
-          return toWagerTransactionSubmissionView(existingByKey, true);
+          return this.completeInbox(
+            unitOfWork,
+            inboxMessage,
+            toWagerTransactionSubmissionView(existingByKey, true),
+          );
         }
 
         pendingTransaction = existingByKey;
@@ -132,7 +139,11 @@ export class ProcessWagerTransactionUseCase {
         }
 
         if (existingByExternal.status !== WagerTransactionStatus.PendingReference) {
-          return toWagerTransactionSubmissionView(existingByExternal, true);
+          return this.completeInbox(
+            unitOfWork,
+            inboxMessage,
+            toWagerTransactionSubmissionView(existingByExternal, true),
+          );
         }
 
         pendingTransaction = existingByExternal;
@@ -160,7 +171,11 @@ export class ProcessWagerTransactionUseCase {
         }
 
         if (lockedExistingByKey.status !== WagerTransactionStatus.PendingReference) {
-          return toWagerTransactionSubmissionView(lockedExistingByKey, true);
+          return this.completeInbox(
+            unitOfWork,
+            inboxMessage,
+            toWagerTransactionSubmissionView(lockedExistingByKey, true),
+          );
         }
 
         pendingTransaction = lockedExistingByKey;
@@ -182,7 +197,11 @@ export class ProcessWagerTransactionUseCase {
         }
 
         if (lockedExistingByExternal.status !== WagerTransactionStatus.PendingReference) {
-          return toWagerTransactionSubmissionView(lockedExistingByExternal, true);
+          return this.completeInbox(
+            unitOfWork,
+            inboxMessage,
+            toWagerTransactionSubmissionView(lockedExistingByExternal, true),
+          );
         }
 
         pendingTransaction = lockedExistingByExternal;
@@ -214,7 +233,11 @@ export class ProcessWagerTransactionUseCase {
             input.idempotencyKey,
           );
           if (concurrentByKey !== null) {
-            return this.replayOrConflict(concurrentByKey, payloadHash);
+            return this.completeInbox(
+              unitOfWork,
+              inboxMessage,
+              this.replayOrConflict(concurrentByKey, payloadHash),
+            );
           }
 
           const concurrentByExternal =
@@ -223,10 +246,14 @@ export class ProcessWagerTransactionUseCase {
               input.externalTransactionId,
             );
           if (concurrentByExternal !== null) {
-            return this.replayByExternalIdOrConflict(
-              concurrentByExternal,
-              input.idempotencyKey,
-              payloadHash,
+            return this.completeInbox(
+              unitOfWork,
+              inboxMessage,
+              this.replayByExternalIdOrConflict(
+                concurrentByExternal,
+                input.idempotencyKey,
+                payloadHash,
+              ),
             );
           }
 
@@ -266,7 +293,11 @@ export class ProcessWagerTransactionUseCase {
               );
             }
 
-            return toWagerTransactionSubmissionView(transaction, idempotentReplay);
+            return this.completeInbox(
+              unitOfWork,
+              inboxMessage,
+              toWagerTransactionSubmissionView(transaction, idempotentReplay),
+            );
           }
 
           transaction.assertReferenceCompatible(reference);
@@ -354,7 +385,7 @@ export class ProcessWagerTransactionUseCase {
           throw error;
         }
 
-        return this.persistRejected(
+        const rejected = await this.persistRejected(
           unitOfWork,
           transaction,
           error.code as FailureCode,
@@ -362,10 +393,86 @@ export class ProcessWagerTransactionUseCase {
           input.causationId,
           idempotentReplay,
         );
+        return this.completeInbox(unitOfWork, inboxMessage, rejected);
       }
 
-      return toWagerTransactionSubmissionView(transaction, idempotentReplay);
+      return this.completeInbox(
+        unitOfWork,
+        inboxMessage,
+        toWagerTransactionSubmissionView(transaction, idempotentReplay),
+      );
     });
+  }
+
+  private async receiveInboxMessage(
+    unitOfWork: FinancialUnitOfWorkPort,
+    input: ProcessWagerTransactionInput,
+    payloadHash: string,
+  ): Promise<InboxMessage | undefined> {
+    const context = input.inbox;
+    if (context === undefined) {
+      return undefined;
+    }
+
+    const inboxPayloadHash = context.payloadHash ?? payloadHash;
+    const existing = await unitOfWork.inbox.findById(context.consumerName, context.messageId);
+    if (existing !== null) {
+      this.assertInboxPayload(existing, inboxPayloadHash);
+      return existing;
+    }
+
+    const message = InboxMessage.receive({
+      messageId: context.messageId,
+      consumerName: context.consumerName,
+      payloadHash: inboxPayloadHash,
+      receivedAt: context.receivedAt,
+    });
+    const inserted = await this.insertInboxIfAbsent(unitOfWork, message);
+    if (inserted) {
+      return message;
+    }
+
+    const concurrentMessage = await unitOfWork.inbox.findById(
+      context.consumerName,
+      context.messageId,
+    );
+    if (concurrentMessage === null) {
+      throw new DomainInvariantError('An inbox conflict was not recoverable.');
+    }
+
+    this.assertInboxPayload(concurrentMessage, inboxPayloadHash);
+    return concurrentMessage;
+  }
+
+  private async completeInbox(
+    unitOfWork: FinancialUnitOfWorkPort,
+    message: InboxMessage | undefined,
+    result: WagerTransactionSubmissionView,
+  ): Promise<WagerTransactionSubmissionView> {
+    if (message !== undefined && !message.isProcessed()) {
+      message.markProcessed(this.clock.now());
+      await unitOfWork.inbox.save(message);
+    }
+
+    return result;
+  }
+
+  private async insertInboxIfAbsent(
+    unitOfWork: FinancialUnitOfWorkPort,
+    message: InboxMessage,
+  ): Promise<boolean> {
+    if (unitOfWork.inbox.insertIfAbsent !== undefined) {
+      return unitOfWork.inbox.insertIfAbsent(message);
+    }
+
+    await unitOfWork.inbox.insert(message);
+    return true;
+  }
+
+  private assertInboxPayload(message: InboxMessage, payloadHash: string): void {
+    if (message.payloadHash !== payloadHash) {
+      throw new InboxPayloadConflictError();
+    }
   }
 
   private async persistRejected(

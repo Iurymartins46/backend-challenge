@@ -18,6 +18,13 @@ export interface RawEnvironment {
   SQS_COMMAND_QUEUE_NAME?: unknown;
   SQS_COMMAND_DLQ_NAME?: unknown;
   SQS_EVENTS_QUEUE_NAME?: unknown;
+  SQS_CONSUMER_ENABLED?: unknown;
+  SQS_CONSUMER_NAME?: unknown;
+  SQS_CONSUMER_CONCURRENCY?: unknown;
+  SQS_WAIT_TIME_SECONDS?: unknown;
+  SQS_VISIBILITY_TIMEOUT_SECONDS?: unknown;
+  SQS_VISIBILITY_HEARTBEAT_SECONDS?: unknown;
+  SQS_SHUTDOWN_TIMEOUT_MS?: unknown;
   AUTH_MODE?: unknown;
   SWAGGER_ENABLED?: unknown;
   OTEL_ENABLED?: unknown;
@@ -41,6 +48,13 @@ export interface ValidatedEnvironment {
   SQS_COMMAND_QUEUE_NAME: string;
   SQS_COMMAND_DLQ_NAME: string;
   SQS_EVENTS_QUEUE_NAME: string;
+  SQS_CONSUMER_ENABLED: boolean;
+  SQS_CONSUMER_NAME: string;
+  SQS_CONSUMER_CONCURRENCY: number;
+  SQS_WAIT_TIME_SECONDS: number;
+  SQS_VISIBILITY_TIMEOUT_SECONDS: number;
+  SQS_VISIBILITY_HEARTBEAT_SECONDS: number;
+  SQS_SHUTDOWN_TIMEOUT_MS: number;
   AUTH_MODE: AuthMode;
   SWAGGER_ENABLED: boolean;
   OTEL_ENABLED: boolean;
@@ -64,6 +78,14 @@ const defaults = {
   SQS_COMMAND_QUEUE_NAME: 'wager-transactions.fifo',
   SQS_COMMAND_DLQ_NAME: 'wager-transactions-dlq.fifo',
   SQS_EVENTS_QUEUE_NAME: 'wager-events.fifo',
+  // The application process opts into consuming explicitly; Compose enables it for the worker.
+  SQS_CONSUMER_ENABLED: 'false',
+  SQS_CONSUMER_NAME: 'wager-command-consumer',
+  SQS_CONSUMER_CONCURRENCY: '4',
+  SQS_WAIT_TIME_SECONDS: '20',
+  SQS_VISIBILITY_TIMEOUT_SECONDS: '30',
+  SQS_VISIBILITY_HEARTBEAT_SECONDS: '10',
+  SQS_SHUTDOWN_TIMEOUT_MS: '10000',
   AUTH_MODE: 'none',
   SWAGGER_ENABLED: 'true',
   OTEL_ENABLED: 'false',
@@ -114,6 +136,29 @@ function parsePositiveInteger(value: string, key: string, errors: string[]): num
   }
 
   return parsed;
+}
+
+function parseIntegerInRange(
+  value: string,
+  key: string,
+  minimum: number,
+  maximum: number,
+  errors: string[],
+): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    errors.push(`${key} must be an integer between ${minimum} and ${maximum}`);
+  }
+
+  return parsed;
+}
+
+function parseNonEmptyString(value: string, key: string, errors: string[]): string {
+  if (value.trim().length === 0) {
+    errors.push(`${key} must not be empty`);
+  }
+
+  return value;
 }
 
 function parseFifoQueueName(value: string, key: string, errors: string[]): string {
@@ -184,6 +229,49 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     'SQS_EVENTS_QUEUE_NAME',
     errors,
   );
+  const sqsConsumerEnabled = parseBoolean(
+    valueOrDefault(raw.SQS_CONSUMER_ENABLED, 'SQS_CONSUMER_ENABLED'),
+    'SQS_CONSUMER_ENABLED',
+    errors,
+  );
+  const sqsConsumerName = parseNonEmptyString(
+    valueOrDefault(raw.SQS_CONSUMER_NAME, 'SQS_CONSUMER_NAME'),
+    'SQS_CONSUMER_NAME',
+    errors,
+  );
+  const sqsConsumerConcurrency = parsePositiveInteger(
+    valueOrDefault(raw.SQS_CONSUMER_CONCURRENCY, 'SQS_CONSUMER_CONCURRENCY'),
+    'SQS_CONSUMER_CONCURRENCY',
+    errors,
+  );
+  const sqsWaitTimeSeconds = parseIntegerInRange(
+    valueOrDefault(raw.SQS_WAIT_TIME_SECONDS, 'SQS_WAIT_TIME_SECONDS'),
+    'SQS_WAIT_TIME_SECONDS',
+    0,
+    20,
+    errors,
+  );
+  const sqsVisibilityTimeoutSeconds = parsePositiveInteger(
+    valueOrDefault(raw.SQS_VISIBILITY_TIMEOUT_SECONDS, 'SQS_VISIBILITY_TIMEOUT_SECONDS'),
+    'SQS_VISIBILITY_TIMEOUT_SECONDS',
+    errors,
+  );
+  const sqsVisibilityHeartbeatSeconds = parsePositiveInteger(
+    valueOrDefault(raw.SQS_VISIBILITY_HEARTBEAT_SECONDS, 'SQS_VISIBILITY_HEARTBEAT_SECONDS'),
+    'SQS_VISIBILITY_HEARTBEAT_SECONDS',
+    errors,
+  );
+  const sqsShutdownTimeoutMs = parsePositiveInteger(
+    valueOrDefault(raw.SQS_SHUTDOWN_TIMEOUT_MS, 'SQS_SHUTDOWN_TIMEOUT_MS'),
+    'SQS_SHUTDOWN_TIMEOUT_MS',
+    errors,
+  );
+
+  if (sqsVisibilityHeartbeatSeconds >= sqsVisibilityTimeoutSeconds) {
+    errors.push(
+      'SQS_VISIBILITY_HEARTBEAT_SECONDS must be lower than SQS_VISIBILITY_TIMEOUT_SECONDS',
+    );
+  }
 
   if (new Set([commandQueueName, commandDlqName, eventsQueueName]).size !== 3) {
     errors.push('SQS command, DLQ and events queue names must be distinct');
@@ -224,6 +312,13 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     SQS_COMMAND_QUEUE_NAME: commandQueueName,
     SQS_COMMAND_DLQ_NAME: commandDlqName,
     SQS_EVENTS_QUEUE_NAME: eventsQueueName,
+    SQS_CONSUMER_ENABLED: sqsConsumerEnabled,
+    SQS_CONSUMER_NAME: sqsConsumerName,
+    SQS_CONSUMER_CONCURRENCY: sqsConsumerConcurrency,
+    SQS_WAIT_TIME_SECONDS: sqsWaitTimeSeconds,
+    SQS_VISIBILITY_TIMEOUT_SECONDS: sqsVisibilityTimeoutSeconds,
+    SQS_VISIBILITY_HEARTBEAT_SECONDS: sqsVisibilityHeartbeatSeconds,
+    SQS_SHUTDOWN_TIMEOUT_MS: sqsShutdownTimeoutMs,
     AUTH_MODE: authMode as AuthMode,
     SWAGGER_ENABLED: swaggerEnabled,
     OTEL_ENABLED: otelEnabled,

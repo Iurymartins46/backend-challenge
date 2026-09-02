@@ -59,6 +59,8 @@ export interface WalletLedgerPage {
 export interface InboxMessageRepositoryPort {
   findById(consumerName: string, messageId: string): Promise<InboxMessage | null>;
   insert(message: InboxMessage): Promise<InboxMessage>;
+  /** Inserts atomically and returns false when this consumer already saw the message. */
+  insertIfAbsent?(message: InboxMessage): Promise<boolean>;
   save(message: InboxMessage): Promise<InboxMessage>;
 }
 
