@@ -44,6 +44,18 @@ export interface AppConfig {
       retryMaxDelayMs: number;
       retryJitterRatio: number;
     };
+    pendingReference: {
+      enabled: boolean;
+      batchSize: number;
+      pollIntervalMs: number;
+      leaseDurationMs: number;
+      shutdownTimeoutMs: number;
+      maxAttempts: number;
+      ttlMs: number;
+      retryBaseDelayMs: number;
+      retryMaxDelayMs: number;
+      retryJitterRatio: number;
+    };
   };
   observability: {
     enabled: boolean;
@@ -101,6 +113,18 @@ export function configuration(): AppConfig {
         retryBaseDelayMs: env.SQS_OUTBOX_RETRY_BASE_DELAY_MS,
         retryMaxDelayMs: env.SQS_OUTBOX_RETRY_MAX_DELAY_MS,
         retryJitterRatio: env.SQS_OUTBOX_RETRY_JITTER_PERCENT / 100,
+      },
+      pendingReference: {
+        enabled: env.PENDING_REFERENCE_WORKER_ENABLED,
+        batchSize: env.PENDING_REFERENCE_BATCH_SIZE,
+        pollIntervalMs: env.PENDING_REFERENCE_POLL_INTERVAL_MS,
+        leaseDurationMs: env.PENDING_REFERENCE_LEASE_MS,
+        shutdownTimeoutMs: env.PENDING_REFERENCE_SHUTDOWN_TIMEOUT_MS,
+        maxAttempts: env.PENDING_REFERENCE_MAX_ATTEMPTS,
+        ttlMs: env.PENDING_REFERENCE_TTL_MS,
+        retryBaseDelayMs: env.PENDING_REFERENCE_RETRY_BASE_DELAY_MS,
+        retryMaxDelayMs: env.PENDING_REFERENCE_RETRY_MAX_DELAY_MS,
+        retryJitterRatio: env.PENDING_REFERENCE_RETRY_JITTER_PERCENT / 100,
       },
     },
     observability: {

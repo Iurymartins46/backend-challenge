@@ -71,9 +71,17 @@ pendências e o lag do evento mais antigo são medidos pelo publisher.
 
 ## Referências fora de ordem
 
-Transações dependentes ausentes ficam `PENDING_REFERENCE`. O worker usa backoff
-exponencial com jitter, teto, limite/TTL, clock injetável e seleção concorrente com
-`SKIP LOCKED`. Ao resolver, usa o mesmo lock da wallet e o mesmo Unit of Work.
+Transações dependentes ausentes ficam `PENDING_REFERENCE`. O worker seleciona apenas
+agendas vencidas usando `FOR UPDATE SKIP LOCKED`, incrementa `reference_attempts` e
+persiste `reference_locked_by`/`reference_locked_until` no claim curto. Ao resolver,
+usa o mesmo lock da wallet e o mesmo Unit of Work do processamento HTTP/SQS.
+
+A policy padrão usa 2 s exponencial com jitter de 20%, teto de 5 min, 10 tentativas e
+TTL de 30 min. A agenda, o contador e o lease sobrevivem a restart; um claim abandonado
+volta a ficar disponível ao expirar. No limite, o worker faz uma última revalidação sob
+o lock da wallet. Se a referência continuar ausente, a transação fica
+`REJECTED/error.wager.reference_not_found`, sem ledger, e a outbox grava
+`WagerTransactionRejected` na mesma transação.
 
 ## Eventos mínimos
 

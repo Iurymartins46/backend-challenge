@@ -275,6 +275,14 @@ export class WagerTransaction {
       nextReferenceAttemptAt === undefined ? undefined : cloneDate(nextReferenceAttemptAt);
   }
 
+  schedulePendingReferenceRetry(nextReferenceAttemptAt: Date): void {
+    if (this._status !== WagerTransactionStatus.PendingReference) {
+      throw new InvalidTransactionStateError(this._status, 'schedule a pending reference retry');
+    }
+
+    this._nextReferenceAttemptAt = cloneDate(nextReferenceAttemptAt);
+  }
+
   reject(code: FailureCode): void {
     this.assertCanTransition('reject');
     if (!isBusinessFailureCode(code)) {

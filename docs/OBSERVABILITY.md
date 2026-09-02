@@ -39,6 +39,7 @@ cardinalidade pertencem a logs/traces, não a labels de métrica.
 - lock conflicts;
 - latência;
 - outbox pending/lag;
+- referências pendentes, tentativas e expirações;
 - divergências de reconciliação.
 
 ### Traces

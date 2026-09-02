@@ -14,6 +14,11 @@ import {
   type OutboxPublisherOptions,
 } from '../../infrastructure/messaging/outbox.publisher';
 import { OutboxPublisherMetrics } from '../../infrastructure/messaging/outbox-publisher.metrics';
+import {
+  PendingReferenceWorker,
+  type PendingReferenceWorkerOptions,
+} from '../../infrastructure/messaging/pending-reference.worker';
+import { PendingReferenceWorkerMetrics } from '../../infrastructure/messaging/pending-reference-worker.metrics';
 import { SQS_QUEUE_PORT } from '../../infrastructure/messaging/sqs.module';
 import type { SqsQueuePort } from '../../infrastructure/messaging/sqs-queue.port';
 import { SqsModule } from '../../infrastructure/messaging/sqs.module';
@@ -27,10 +32,14 @@ const WAGER_ID_GENERATOR = Symbol('WAGER_ID_GENERATOR');
 const WAGER_CLOCK = Symbol('WAGER_CLOCK');
 const OUTBOX_ID_GENERATOR = Symbol('OUTBOX_ID_GENERATOR');
 const OUTBOX_CLOCK = Symbol('OUTBOX_CLOCK');
+const PENDING_REFERENCE_ID_GENERATOR = Symbol('PENDING_REFERENCE_ID_GENERATOR');
+const PENDING_REFERENCE_CLOCK = Symbol('PENDING_REFERENCE_CLOCK');
 export const SQS_COMMAND_CONSUMER_OPTIONS = Symbol('SQS_COMMAND_CONSUMER_OPTIONS');
 export const SQS_CONSUMER_METRICS = Symbol('SQS_CONSUMER_METRICS');
 export const SQS_OUTBOX_PUBLISHER_OPTIONS = Symbol('SQS_OUTBOX_PUBLISHER_OPTIONS');
 export const SQS_OUTBOX_PUBLISHER_METRICS = Symbol('SQS_OUTBOX_PUBLISHER_METRICS');
+export const PENDING_REFERENCE_WORKER_OPTIONS = Symbol('PENDING_REFERENCE_WORKER_OPTIONS');
+export const PENDING_REFERENCE_WORKER_METRICS = Symbol('PENDING_REFERENCE_WORKER_METRICS');
 
 @Module({
   imports: [ConfigModule, DatabaseModule, SqsModule],
@@ -50,6 +59,14 @@ export const SQS_OUTBOX_PUBLISHER_METRICS = Symbol('SQS_OUTBOX_PUBLISHER_METRICS
     },
     {
       provide: OUTBOX_CLOCK,
+      useFactory: (): Clock => new SystemClock(),
+    },
+    {
+      provide: PENDING_REFERENCE_ID_GENERATOR,
+      useFactory: (): IdGenerator => new RandomIdGenerator(),
+    },
+    {
+      provide: PENDING_REFERENCE_CLOCK,
       useFactory: (): Clock => new SystemClock(),
     },
     {
@@ -107,6 +124,33 @@ export const SQS_OUTBOX_PUBLISHER_METRICS = Symbol('SQS_OUTBOX_PUBLISHER_METRICS
       useFactory: (): OutboxPublisherMetrics => new OutboxPublisherMetrics(),
     },
     {
+      provide: PENDING_REFERENCE_WORKER_OPTIONS,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<AppConfig, true>): PendingReferenceWorkerOptions => ({
+        enabled: config.get('messaging.pendingReference.enabled', { infer: true }),
+        batchSize: config.get('messaging.pendingReference.batchSize', { infer: true }),
+        pollIntervalMs: config.get('messaging.pendingReference.pollIntervalMs', { infer: true }),
+        leaseDurationMs: config.get('messaging.pendingReference.leaseDurationMs', { infer: true }),
+        shutdownTimeoutMs: config.get('messaging.pendingReference.shutdownTimeoutMs', {
+          infer: true,
+        }),
+        maxAttempts: config.get('messaging.pendingReference.maxAttempts', { infer: true }),
+        ttlMs: config.get('messaging.pendingReference.ttlMs', { infer: true }),
+        retryPolicy: new ExponentialRetryPolicy({
+          maxAttempts: config.get('messaging.pendingReference.maxAttempts', { infer: true }),
+          baseDelayMs: config.get('messaging.pendingReference.retryBaseDelayMs', { infer: true }),
+          maxDelayMs: config.get('messaging.pendingReference.retryMaxDelayMs', { infer: true }),
+          jitterRatio: config.get('messaging.pendingReference.retryJitterRatio', {
+            infer: true,
+          }),
+        }),
+      }),
+    },
+    {
+      provide: PENDING_REFERENCE_WORKER_METRICS,
+      useFactory: (): PendingReferenceWorkerMetrics => new PendingReferenceWorkerMetrics(),
+    },
+    {
       provide: SqsWagerCommandHandler,
       inject: [ProcessWagerTransactionUseCase, SQS_COMMAND_CONSUMER_OPTIONS, WAGER_CLOCK],
       useFactory: (
@@ -148,6 +192,25 @@ export const SQS_OUTBOX_PUBLISHER_METRICS = Symbol('SQS_OUTBOX_PUBLISHER_METRICS
         options: OutboxPublisherOptions,
         metrics: OutboxPublisherMetrics,
       ) => new OutboxPublisher(queue, unitOfWork, clock, idGenerator, options, metrics),
+    },
+    {
+      provide: PendingReferenceWorker,
+      inject: [
+        ProcessWagerTransactionUseCase,
+        FINANCIAL_UNIT_OF_WORK,
+        PENDING_REFERENCE_CLOCK,
+        PENDING_REFERENCE_ID_GENERATOR,
+        PENDING_REFERENCE_WORKER_OPTIONS,
+        PENDING_REFERENCE_WORKER_METRICS,
+      ],
+      useFactory: (
+        processor: ProcessWagerTransactionUseCase,
+        unitOfWork: FinancialUnitOfWorkPort,
+        clock: Clock,
+        idGenerator: IdGenerator,
+        options: PendingReferenceWorkerOptions,
+        metrics: PendingReferenceWorkerMetrics,
+      ) => new PendingReferenceWorker(processor, unitOfWork, clock, idGenerator, options, metrics),
     },
   ],
 })

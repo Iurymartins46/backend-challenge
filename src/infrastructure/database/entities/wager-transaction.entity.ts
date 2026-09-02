@@ -104,4 +104,13 @@ export class WagerTransactionEntity {
 
   @Column({ type: 'timestamptz', name: 'next_reference_attempt_at', nullable: true })
   nextReferenceAttemptAt!: Date | null;
+
+  @Column({ type: 'integer', name: 'reference_attempts', default: 0 })
+  referenceAttempts!: number;
+
+  @Column({ type: 'varchar', name: 'reference_locked_by', length: 255, nullable: true })
+  referenceLockedBy!: string | null;
+
+  @Column({ type: 'timestamptz', name: 'reference_locked_until', nullable: true })
+  referenceLockedUntil!: Date | null;
 }

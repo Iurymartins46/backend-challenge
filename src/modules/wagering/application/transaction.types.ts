@@ -28,6 +28,8 @@ export interface ProcessWagerTransactionInput {
   readonly correlationId?: string;
   readonly causationId?: string;
   readonly inbox?: WagerInboxContext;
+  /** Internal worker signal: reject atomically if the reference is still absent. */
+  readonly expirePendingReference?: boolean;
 }
 
 export interface WagerInboxContext {

@@ -14,7 +14,7 @@
 - provider, external transaction, idempotency key e payload hash;
 - wallet, player, rodada, jogo, kind, status, valor e moeda;
 - referência externa e FK autorreferente resolvida;
-- failure code, processed at e agenda de referência;
+- failure code, processed at, agenda, contador de tentativas e claim/lease da referência;
 - snapshot do saldo e versão para replay;
 - unique `(provider_id, external_transaction_id)`;
 - unique `(provider_id, idempotency_key)`;
@@ -57,7 +57,9 @@ nas entidades TypeORM. Os mappers usam `BigInt` diretamente e reidratam `Money` 
 passar por `number`.
 
 O lock pessimista é sempre adquirido por wallet e em ordem consistente. Seletores de
-workers usam `FOR UPDATE SKIP LOCKED`, sem lock global.
+workers usam `FOR UPDATE SKIP LOCKED`, sem lock global. O worker de referências atualiza
+`reference_attempts`, `reference_locked_by` e `reference_locked_until` no mesmo claim
+curto; a agenda continua em `next_reference_attempt_at`.
 
 ## Migrations
 

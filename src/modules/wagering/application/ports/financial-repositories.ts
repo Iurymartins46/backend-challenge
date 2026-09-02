@@ -30,6 +30,42 @@ export interface WagerTransactionRepositoryPort {
   /** Inserts atomically and returns false when a unique business key already exists. */
   insertIfAbsent?(transaction: WagerTransaction): Promise<boolean>;
   save(transaction: WagerTransaction): Promise<WagerTransaction>;
+  claimPendingReferenceDue?(
+    input: PendingReferenceClaimInput,
+  ): Promise<readonly PendingReferenceClaim[]>;
+  schedulePendingReferenceRetryIfOwned?(input: PendingReferenceRetryInput): Promise<boolean>;
+  releasePendingReferenceClaimIfOwned?(input: PendingReferenceLeaseMutationInput): Promise<boolean>;
+  measurePendingReferences?(now: Date): Promise<PendingReferenceMetrics>;
+}
+
+export interface PendingReferenceClaimInput {
+  readonly now: Date;
+  readonly limit: number;
+  readonly owner: string;
+  readonly leaseUntil: Date;
+}
+
+export interface PendingReferenceClaim {
+  readonly transaction: WagerTransaction;
+  /** Number of worker attempts, persisted atomically when the lease is claimed. */
+  readonly attempts: number;
+}
+
+export interface PendingReferenceRetryInput {
+  readonly transaction: WagerTransaction;
+  readonly owner: string;
+  readonly now: Date;
+}
+
+export interface PendingReferenceLeaseMutationInput {
+  readonly transactionId: string;
+  readonly owner: string;
+  readonly now: Date;
+}
+
+export interface PendingReferenceMetrics {
+  readonly pendingCount: number;
+  readonly attempts: number;
 }
 
 export interface WalletLedgerRepositoryPort {

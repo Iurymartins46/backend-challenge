@@ -4,15 +4,15 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–9 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–10 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
 > wallet, referências persistidas fora de ordem e consultas de transação estão
 > implementados; o consumidor SQS com inbox persistente, redelivery e ack pós-commit
 > também está implementado; o publisher da outbox com claim/lease, retry e recuperação
-> de crash também está implementado; o worker agendado de referências entra na fase
-> seguinte. O
+> de crash também está implementado; o worker agendado de referências pendentes usa
+> claim/lease persistente, backoff e expiração auditável. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -207,6 +207,26 @@ As opções operacionais são `SQS_OUTBOX_BATCH_SIZE`, `SQS_OUTBOX_POLL_INTERVAL
 `SQS_OUTBOX_LEASE_MS`, `SQS_OUTBOX_MAX_ATTEMPTS`,
 `SQS_OUTBOX_RETRY_BASE_DELAY_MS`, `SQS_OUTBOX_RETRY_MAX_DELAY_MS` e
 `SQS_OUTBOX_RETRY_JITTER_PERCENT`.
+
+O worker de referências pendentes inicia no Compose quando
+`PENDING_REFERENCE_WORKER_ENABLED=true`. Ele seleciona somente
+`PENDING_REFERENCE` vencidas com `FOR UPDATE SKIP LOCKED`, incrementa a tentativa no
+mesmo claim e reutiliza o processamento financeiro/lock da wallet. A policy padrão é
+2 s exponencial com jitter de 20%, teto de 5 min, 10 tentativas e TTL de 30 min; no
+limite, uma última revalidação sob lock rejeita com
+`error.wager.reference_not_found` e grava o evento na outbox. As opções são
+`PENDING_REFERENCE_BATCH_SIZE`, `PENDING_REFERENCE_POLL_INTERVAL_MS`,
+`PENDING_REFERENCE_LEASE_MS`, `PENDING_REFERENCE_MAX_ATTEMPTS`,
+`PENDING_REFERENCE_TTL_MS`, `PENDING_REFERENCE_RETRY_BASE_DELAY_MS`,
+`PENDING_REFERENCE_RETRY_MAX_DELAY_MS` e
+`PENDING_REFERENCE_RETRY_JITTER_PERCENT`.
+
+Para provar o worker com PostgreSQL real, incluindo REFUND/ROLLBACK fora de ordem,
+três workers concorrentes, reinício lógico com clock fake e expiração auditável:
+
+```bash
+RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/pending-reference-worker.spec.ts
+```
 
 ## Health checks
 

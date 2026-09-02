@@ -276,6 +276,13 @@ export class ProcessWagerTransactionUseCase {
             )) ?? undefined;
 
           if (reference === undefined) {
+            if (input.expirePendingReference) {
+              throw new WagerRuleError(
+                'error.wager.reference_not_found',
+                'The referenced transaction was not received before the pending-reference deadline.',
+              );
+            }
+
             if (transaction.status !== WagerTransactionStatus.PendingReference) {
               transaction.markPendingReference(
                 new Date(transaction.createdAt.getTime() + REFERENCE_INITIAL_DELAY_MS),

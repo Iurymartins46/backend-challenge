@@ -5,8 +5,8 @@
 > O bootstrap da Fase 1, o domínio puro da Fase 3, a persistência da Fase 4, a
 > vertical HTTP de wallet/ledger, o processamento HTTP síncrono de BET/WIN/LOSS da
 > Fase 6, de REFUND/ROLLBACK da Fase 7 e o consumidor SQS/inbox da Fase 8 já existem;
-> o publisher da outbox da Fase 9 já existe; o worker agendado de referências permanece
-> na fase seguinte.
+> o publisher da outbox da Fase 9 já existe; o worker agendado de referências pendentes
+> da Fase 10 também existe.
 
 ## 1. Objetivo arquitetural
 
@@ -135,11 +135,14 @@ Detalhes: [docs/MESSAGING.md](docs/MESSAGING.md).
 ### 4.6 Referências fora de ordem
 
 Referência ausente é persistida como `PENDING_REFERENCE`, não tratada como falha do
-transporte. O fluxo síncrono da Fase 7 revalida a referência depois do lock da wallet e
-permite que uma nova submissão idempotente conclua a pendência; o worker da Fase 10
-consultará registros vencidos com backoff, obterá o mesmo lock da wallet e reutilizará o
-processamento financeiro. Limite ou TTL esgotado produz rejeição auditável e evento
-correspondente.
+transporte. O fluxo síncrono revalida a referência depois do lock da wallet e permite
+que uma nova submissão idempotente conclua a pendência. O worker seleciona registros
+vencidos com `FOR UPDATE SKIP LOCKED`, grava claim/lease e contador de tentativas antes
+de soltar a transação curta e então reutiliza o mesmo caso de uso financeiro e lock da
+wallet. A policy é 2 s exponencial com jitter, teto de 5 min, 10 tentativas e TTL de
+30 min. No limite, o mesmo caso de uso faz a última revalidação sob lock; referência
+ainda ausente gera `REJECTED/error.wager.reference_not_found` e outbox correspondente.
+Crash entre tentativas só deixa o lease expirar: agenda e contador permanecem no banco.
 
 ### 4.7 Ledger e garantias no schema
 
@@ -182,6 +185,11 @@ adicionada depois.
 O publisher da outbox expõe contadores processuais de claims, publicações, falhas,
 retries, leases perdidos e os gauges de quantidade pendente e lag. IDs de eventos e
 wallets ficam em logs/traces, não em labels de métricas.
+
+O worker de referências expõe claims, tentativas, processamentos, reagendamentos,
+expirações, leases perdidos e falhas, além dos gauges de pendências e tentativas
+acumuladas. Esses valores são diagnósticos locais; PostgreSQL continua sendo a fonte da
+verdade.
 
 Logs JSON continuam sendo o contrato primário porque o sinal de logs do SDK JavaScript
 do OpenTelemetry ainda tem maturidade inferior a traces e métricas. Telemetria nunca
