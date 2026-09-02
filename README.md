@@ -18,9 +18,10 @@ outbox.
 > [docs/AUDIT_PHASES_1_14.md](docs/AUDIT_PHASES_1_14.md). O enunciado original foi
 > preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
-Esta entrega não implementa autenticação OIDC da Fase 15 nem o teste de carga da Fase
-16. O registro final de evidências, limitações e roteiro de apresentação está em
-[docs/DELIVERY.md](docs/DELIVERY.md).
+Esta entrega não implementa a autenticação OIDC opcional da Fase 15. O teste de carga
+da Fase 16 está disponível em `bun run test:load`; sua metodologia está em
+[docs/LOAD_TEST.md](docs/LOAD_TEST.md). O registro final de evidências, limitações e
+roteiro de apresentação está em [docs/DELIVERY.md](docs/DELIVERY.md).
 
 ## Documentação
 
@@ -32,6 +33,7 @@ Esta entrega não implementa autenticação OIDC da Fase 15 nem o teste de carga
 - [Mensageria](docs/MESSAGING.md)
 - [Observabilidade](docs/OBSERVABILITY.md)
 - [Testes](docs/TESTING.md)
+- [Teste de carga da Fase 16](docs/LOAD_TEST.md)
 - [Entrega final, rastreabilidade e apresentação](docs/DELIVERY.md)
 
 ## Pré-requisitos
@@ -226,6 +228,16 @@ O registro da máquina, versões e duração observada das duas rodadas está em
 [docs/DELIVERY.md](docs/DELIVERY.md). A suíte deve ser repetida com PostgreSQL e
 LocalStack saudáveis antes de apresentar o resultado; seus recursos efêmeros não devem
 ser confundidos com o banco ou as filas padrão.
+
+O teste de carga opcional da Fase 16 usa recursos isolados e sobe três processos reais.
+Ele separa hot wallet de muitas wallets, executa warm-up, medição e cooldown e imprime
+throughput, p50/p95/p99, erros, conflitos de lock, lag da outbox, auditoria wallet/ledger
+e as limitações do experimento. Consulte [docs/LOAD_TEST.md](docs/LOAD_TEST.md) e
+execute-o somente após `bun run test:concurrency` estar estável:
+
+```bash
+bun run test:load
+```
 
 O projeto usa NestJS 12 com Fastify e validação Standard Schema/Zod. TypeScript 6.0.2 é
 o maior release aceito por `typescript-eslint@8.69.0` (`<6.1.0`); TypeScript 7 será

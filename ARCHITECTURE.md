@@ -9,7 +9,9 @@
 > da Fase 10 também existe. A reconciliação da Fase 11 também existe. A Fase 13 acrescenta
 > uma suíte distribuída que executa três processos NestJS reais contra PostgreSQL e
 > LocalStack isolados para validar as garantias eliminatórias. A consolidação da Fase
-> 14 está registrada em [docs/DELIVERY.md](docs/DELIVERY.md).
+> 14 está registrada em [docs/DELIVERY.md](docs/DELIVERY.md). O runner opcional da Fase
+> 16 usa o mesmo princípio de isolamento para medir HTTP sem alterar o banco de
+> desenvolvimento.
 
 ## 1. Objetivo arquitetural
 
@@ -298,7 +300,17 @@ pós-commit/pré-ack, publishers concorrentes, referência fora de ordem e resta
 O invariante final de todo cenário é wallet igual ao saldo reconstruído pelo ledger.
 
 Detalhes: [docs/TESTING.md](docs/TESTING.md). Os comandos e a evidência registrada para
-a entrega estão em [docs/DELIVERY.md](docs/DELIVERY.md).
+a entrega estão em [docs/DELIVERY.md](docs/DELIVERY.md). O experimento opcional de
+carga, seus limites e o formato do relatório estão em [docs/LOAD_TEST.md](docs/LOAD_TEST.md).
+
+## 8.1 Teste de carga opcional
+
+`bun run test:load` cria banco e filas FIFO temporários, aplica as migrations e sobe
+três processos independentes com as garantias financeiras inalteradas. Os cenários de
+hot wallet e muitas wallets têm warm-up, janela de medição e cooldown. O runner mede
+latência p50/p95/p99, throughput, erros, conflitos de lock, backlog/lag da outbox e
+confirma a igualdade entre wallet e ledger. O resultado não estabelece meta de RPS:
+ele é uma observação condicionada à máquina e à configuração registradas no relatório.
 
 ## 9. Trade-offs assumidos
 
@@ -335,7 +347,7 @@ classificação local de falhas permanentes.
 Os limites deliberados são:
 
 - `AUTH_MODE=none` é o único adapter disponível; OIDC pertence à Fase 15;
-- não há teste de carga da Fase 16;
+- o teste de carga da Fase 16 é um diferencial opt-in e não substitui a suíte distribuída;
 - o ledger é de uma entrada por wallet/transação; partidas dobradas continuam sendo
   diferencial opcional;
 - a reconciliação sinaliza divergências com log e métrica, mas não corrige dados;

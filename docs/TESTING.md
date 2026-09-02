@@ -82,6 +82,16 @@ um saldo negativo e a mutação do ledger append-only.
 Failpoints são adapters injetáveis habilitados somente em teste. Esperas usam polling
 com deadline, não sleeps arbitrários.
 
+## Teste de carga opcional
+
+`bun run test:load` é um experimento separado da suíte de correção. Ele usa PostgreSQL
+e LocalStack reais, banco e filas temporários, três processos NestJS e dois cenários
+HTTP: uma hot wallet e muitas wallets. Cada cenário tem warm-up, janela de medição e
+cooldown, e o relatório registra throughput, p50/p95/p99, erros, conflitos de lock,
+backlog/lag da outbox, ambiente e limitações. A igualdade wallet/ledger é verificada ao
+final; não existe meta de RPS nem relaxamento de consistência. O procedimento completo
+está em [docs/LOAD_TEST.md](LOAD_TEST.md).
+
 ## Invariante final
 
 Todo cenário consulta PostgreSQL e prova:
