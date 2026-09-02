@@ -19,6 +19,14 @@ import {
   WagerTransactionKind,
   WagerTransactionStatus,
   Wallet,
+  DependencyUnavailableError,
+  ExponentialRetryPolicy,
+  ExternalTransactionConflictError,
+  IdempotencyPayloadConflictError,
+  InboxPayloadConflictError,
+  WagerWalletContextMismatchError,
+  WalletNotFoundError,
+  type InboxMessage,
   type OutboxMessage,
   type WalletLedgerEntry,
   type WagerTransaction,
@@ -45,7 +53,9 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
   readonly storedWallets: Wallet[] = [];
   readonly storedTransactions: WagerTransaction[] = [];
   readonly storedLedgerEntries: WalletLedgerEntry[] = [];
+  readonly storedInboxMessages: InboxMessage[] = [];
   readonly storedOutboxMessages: OutboxMessage[] = [];
+  readonly transactionFailures: Error[] = [];
 
   readonly wallets: WalletRepositoryPort = {
     findById: (id) =>
@@ -149,8 +159,28 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
   };
 
   readonly inbox: InboxMessageRepositoryPort = {
-    findById: () => Promise.resolve(null),
-    insert: (message) => Promise.resolve(message),
+    findById: (consumerName, messageId) =>
+      Promise.resolve(
+        this.storedInboxMessages.find(
+          (message) => message.consumerName === consumerName && message.messageId === messageId,
+        ) ?? null,
+      ),
+    insert: (message) => {
+      this.storedInboxMessages.push(message);
+      return Promise.resolve(message);
+    },
+    insertIfAbsent: (message) => {
+      const exists = this.storedInboxMessages.some(
+        (candidate) =>
+          candidate.consumerName === message.consumerName &&
+          candidate.messageId === message.messageId,
+      );
+      if (!exists) {
+        this.storedInboxMessages.push(message);
+      }
+
+      return Promise.resolve(!exists);
+    },
     save: (message) => Promise.resolve(message),
   };
 
@@ -165,6 +195,11 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
   };
 
   async transaction<T>(callback: (unitOfWork: FinancialUnitOfWorkPort) => Promise<T>): Promise<T> {
+    const failure = this.transactionFailures.shift();
+    if (failure !== undefined) {
+      throw failure;
+    }
+
     return callback(this);
   }
 
@@ -181,6 +216,16 @@ function createUseCase(unitOfWork: InMemoryFinancialUnitOfWork): ProcessWagerTra
     new IncrementingIdGenerator(),
     new FixedClock(),
   );
+}
+
+async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error: unknown) {
+    return error;
+  }
+
+  throw new Error('Expected the promise to reject.');
 }
 
 function input(
@@ -364,5 +409,177 @@ describe('wager transaction reference processing', () => {
       currency: 'BRL',
     });
     expect(unitOfWork.storedLedgerEntries).toHaveLength(2);
+  });
+
+  test('keeps LOSS auditably processed without a ledger entry or wallet version change', async () => {
+    const unitOfWork = new InMemoryFinancialUnitOfWork();
+    addWallet(unitOfWork, '100.00');
+
+    const result = await createUseCase(unitOfWork).execute(
+      input({
+        externalTransactionId: 'loss',
+        idempotencyKey: 'key-loss',
+        kind: WagerTransactionKind.Loss,
+      }),
+    );
+
+    expect(result).toEqual({
+      transactionId: 'generated-1',
+      status: WagerTransactionStatus.Processed,
+      balance: { amount: '100.00', currency: 'BRL' },
+      walletVersion: 1,
+      idempotentReplay: false,
+    });
+    expect(unitOfWork.storedWallets[0]?.version).toBe(1);
+    expect(unitOfWork.storedLedgerEntries).toHaveLength(0);
+    expect(unitOfWork.storedOutboxMessages.map((message) => message.eventType)).toEqual([
+      'WagerTransactionProcessed',
+    ]);
+  });
+
+  test('persists an insufficient BET rejection once without a ledger or wallet mutation', async () => {
+    const unitOfWork = new InMemoryFinancialUnitOfWork();
+    addWallet(unitOfWork, '5.00');
+    const useCase = createUseCase(unitOfWork);
+    const insufficientBet = input({
+      externalTransactionId: 'insufficient-bet',
+      idempotencyKey: 'key-insufficient-bet',
+      money: { amount: '10.00', currency: 'BRL' },
+    });
+
+    const first = await useCase.execute(insufficientBet);
+    const replay = await useCase.execute(insufficientBet);
+
+    expect(first).toMatchObject({
+      status: WagerTransactionStatus.Rejected,
+      failureCode: 'error.wager.insufficient_funds',
+      idempotentReplay: false,
+    });
+    expect(replay).toEqual({ ...first, idempotentReplay: true });
+    expect(unitOfWork.storedWallets[0]?.balance.toString()).toBe('5.00');
+    expect(unitOfWork.storedWallets[0]?.version).toBe(1);
+    expect(unitOfWork.storedLedgerEntries).toHaveLength(0);
+    expect(unitOfWork.storedTransactions).toHaveLength(1);
+    expect(unitOfWork.storedOutboxMessages.map((message) => message.eventType)).toEqual([
+      'WagerTransactionRejected',
+    ]);
+  });
+
+  test('rejects conflicting idempotency and external transaction keys without a second effect', async () => {
+    const unitOfWork = new InMemoryFinancialUnitOfWork();
+    addWallet(unitOfWork, '100.00');
+    const useCase = createUseCase(unitOfWork);
+    const original = input({ externalTransactionId: 'original', idempotencyKey: 'key-original' });
+
+    await useCase.execute(original);
+
+    expect(
+      await rejectionOf(
+        useCase.execute({ ...original, money: { amount: '11.00', currency: 'BRL' } }),
+      ),
+    ).toBeInstanceOf(IdempotencyPayloadConflictError);
+    expect(
+      await rejectionOf(useCase.execute({ ...original, idempotencyKey: 'key-other' })),
+    ).toBeInstanceOf(ExternalTransactionConflictError);
+
+    expect(unitOfWork.storedWallets[0]?.balance.toString()).toBe('90.00');
+    expect(unitOfWork.storedTransactions).toHaveLength(1);
+    expect(unitOfWork.storedLedgerEntries).toHaveLength(1);
+    expect(unitOfWork.storedOutboxMessages).toHaveLength(2);
+  });
+
+  test('rejects missing wallets and mismatched wallet context before transaction persistence', async () => {
+    const missingWalletUnitOfWork = new InMemoryFinancialUnitOfWork();
+    expect(
+      await rejectionOf(createUseCase(missingWalletUnitOfWork).execute(input())),
+    ).toBeInstanceOf(WalletNotFoundError);
+    expect(missingWalletUnitOfWork.storedTransactions).toHaveLength(0);
+
+    const mismatchedWalletUnitOfWork = new InMemoryFinancialUnitOfWork();
+    addWallet(mismatchedWalletUnitOfWork, '100.00');
+    expect(
+      await rejectionOf(
+        createUseCase(mismatchedWalletUnitOfWork).execute(input({ playerId: 'another-player' })),
+      ),
+    ).toBeInstanceOf(WagerWalletContextMismatchError);
+    expect(mismatchedWalletUnitOfWork.storedTransactions).toHaveLength(0);
+  });
+
+  test('uses the persistent inbox for SQS redelivery and refuses a divergent application message', async () => {
+    const unitOfWork = new InMemoryFinancialUnitOfWork();
+    addWallet(unitOfWork, '100.00');
+    const useCase = createUseCase(unitOfWork);
+    const firstInput = input({
+      externalTransactionId: 'sqs-bet',
+      idempotencyKey: 'key-sqs-bet',
+      inbox: {
+        consumerName: 'wager-consumer',
+        messageId: 'application-message-1',
+        payloadHash: 'command-hash-1',
+        receivedAt: now,
+      },
+    });
+
+    await useCase.execute(firstInput);
+    const replay = await useCase.execute(firstInput);
+
+    expect(replay.idempotentReplay).toBe(true);
+    expect(unitOfWork.storedInboxMessages).toHaveLength(1);
+    expect(unitOfWork.storedInboxMessages[0]?.isProcessed()).toBe(true);
+    expect(unitOfWork.storedWallets[0]?.balance.toString()).toBe('90.00');
+    expect(unitOfWork.storedLedgerEntries).toHaveLength(1);
+
+    expect(
+      await rejectionOf(
+        useCase.execute({
+          ...firstInput,
+          inbox: { ...firstInput.inbox!, payloadHash: 'different-command-hash' },
+        }),
+      ),
+    ).toBeInstanceOf(InboxPayloadConflictError);
+    expect(unitOfWork.storedTransactions).toHaveLength(1);
+    expect(unitOfWork.storedLedgerEntries).toHaveLength(1);
+  });
+
+  test('retries transient transaction failures with the configured delay and normalizes exhaustion', async () => {
+    const retryingUnitOfWork = new InMemoryFinancialUnitOfWork();
+    addWallet(retryingUnitOfWork, '100.00');
+    retryingUnitOfWork.transactionFailures.push(
+      Object.assign(new Error('serialization failure'), { code: '40001' }),
+    );
+    const delays: number[] = [];
+    const retryingUseCase = new ProcessWagerTransactionUseCase(
+      retryingUnitOfWork,
+      new IncrementingIdGenerator(),
+      new FixedClock(),
+      new ExponentialRetryPolicy({ baseDelayMs: 7, maxDelayMs: 7, maxAttempts: 1 }),
+      (delayMs) => {
+        delays.push(delayMs);
+        return Promise.resolve();
+      },
+    );
+
+    const result = await retryingUseCase.execute(
+      input({ externalTransactionId: 'retried-bet', idempotencyKey: 'key-retried-bet' }),
+    );
+    expect(result.status).toBe(WagerTransactionStatus.Processed);
+    expect(delays).toEqual([7]);
+
+    const exhaustedUnitOfWork = new InMemoryFinancialUnitOfWork();
+    exhaustedUnitOfWork.transactionFailures.push(
+      Object.assign(new Error('lock timeout'), { code: '55P03' }),
+      Object.assign(new Error('lock timeout'), { code: '55P03' }),
+    );
+    const exhaustedUseCase = new ProcessWagerTransactionUseCase(
+      exhaustedUnitOfWork,
+      new IncrementingIdGenerator(),
+      new FixedClock(),
+      new ExponentialRetryPolicy({ baseDelayMs: 1, maxDelayMs: 1, maxAttempts: 1 }),
+      () => Promise.resolve(),
+    );
+
+    expect(await rejectionOf(exhaustedUseCase.execute(input()))).toBeInstanceOf(
+      DependencyUnavailableError,
+    );
   });
 });
