@@ -7,6 +7,7 @@ import type { AppConfig } from '../../config/configuration';
 import { FINANCIAL_UNIT_OF_WORK } from '../../modules/wagering/application/ports';
 import { FinancialUnitOfWork } from './financial-unit-of-work';
 import { entities } from './entities/registry';
+import { DatabaseHealthCheck } from './database-health.check';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { entities } from './entities/registry';
     }),
   ],
   providers: [
+    DatabaseHealthCheck,
     {
       provide: FINANCIAL_UNIT_OF_WORK,
       inject: [DataSource],
@@ -34,6 +36,6 @@ import { entities } from './entities/registry';
         FinancialUnitOfWork.fromEntityManager(dataSource.manager),
     },
   ],
-  exports: [FINANCIAL_UNIT_OF_WORK],
+  exports: [FINANCIAL_UNIT_OF_WORK, DatabaseHealthCheck],
 })
 export class DatabaseModule {}

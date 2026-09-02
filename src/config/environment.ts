@@ -50,6 +50,7 @@ export interface RawEnvironment {
   OTEL_SERVICE_NAME?: unknown;
   OTEL_SERVICE_VERSION?: unknown;
   OTEL_EXPORTER_OTLP_ENDPOINT?: unknown;
+  HEALTHCHECK_TIMEOUT_MS?: unknown;
 }
 
 export interface ValidatedEnvironment {
@@ -99,6 +100,7 @@ export interface ValidatedEnvironment {
   OTEL_SERVICE_NAME: string;
   OTEL_SERVICE_VERSION: string;
   OTEL_EXPORTER_OTLP_ENDPOINT: string;
+  HEALTHCHECK_TIMEOUT_MS: number;
 }
 
 const defaults = {
@@ -149,6 +151,7 @@ const defaults = {
   OTEL_SERVICE_NAME: 'distributed-wagering-processor',
   OTEL_SERVICE_VERSION: '0.1.0',
   OTEL_EXPORTER_OTLP_ENDPOINT: 'http://localhost:4318',
+  HEALTHCHECK_TIMEOUT_MS: '1000',
 } as const;
 
 function valueOrDefault(value: unknown, key: keyof typeof defaults): string {
@@ -482,6 +485,11 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     'OTEL_ENABLED',
     errors,
   );
+  const healthcheckTimeoutMs = parsePositiveInteger(
+    valueOrDefault(raw.HEALTHCHECK_TIMEOUT_MS, 'HEALTHCHECK_TIMEOUT_MS'),
+    'HEALTHCHECK_TIMEOUT_MS',
+    errors,
+  );
 
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration: ${errors.join('; ')}`);
@@ -534,6 +542,7 @@ export function validateEnvironment(raw: RawEnvironment): ValidatedEnvironment {
     OTEL_SERVICE_NAME: valueOrDefault(raw.OTEL_SERVICE_NAME, 'OTEL_SERVICE_NAME'),
     OTEL_SERVICE_VERSION: valueOrDefault(raw.OTEL_SERVICE_VERSION, 'OTEL_SERVICE_VERSION'),
     OTEL_EXPORTER_OTLP_ENDPOINT: otelEndpoint,
+    HEALTHCHECK_TIMEOUT_MS: healthcheckTimeoutMs,
   };
 }
 

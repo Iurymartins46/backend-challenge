@@ -1,5 +1,12 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, HttpStatus, Query, Res } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiServiceUnavailableResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 
 import { ErrorResponseDto } from '../../common/http/error.dto';
@@ -30,8 +37,16 @@ export class HealthController {
   @Public()
   @ApiOperation({ summary: 'Application readiness' })
   @ApiOkResponse({ type: HealthResponseDto })
+  @ApiServiceUnavailableResponse({ type: HealthResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
-  ready(@Query({ schema: readyQuerySchema }) _query: ReadyQuery): HealthResponseDto {
-    return this.healthService.ready();
+  async ready(
+    @Query({ schema: readyQuerySchema }) _query: ReadyQuery,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<HealthResponseDto> {
+    const result = await this.healthService.ready();
+    if (result.status === 'error') {
+      reply.status(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    return result;
   }
 }

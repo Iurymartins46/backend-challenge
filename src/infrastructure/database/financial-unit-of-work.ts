@@ -1,5 +1,7 @@
 import type { EntityManager } from 'typeorm';
 
+import { withTelemetrySpan } from '../telemetry';
+
 import type {
   FinancialTransactionCallback,
   FinancialUnitOfWorkPort,
@@ -40,14 +42,27 @@ export class FinancialUnitOfWork implements FinancialUnitOfWorkPort {
 
   /** Starts a transaction and gives the callback a new, transaction-bound UoW. */
   async transaction<T>(callback: FinancialTransactionCallback<T>): Promise<T> {
-    return this.manager.transaction(async (transactionManager) =>
-      callback(FinancialUnitOfWork.fromEntityManager(transactionManager)),
+    return withTelemetrySpan(
+      'database.transaction',
+      { 'db.system': 'postgresql', 'db.transaction.mode': 'read-write' },
+      () =>
+        this.manager.transaction(async (transactionManager) =>
+          callback(FinancialUnitOfWork.fromEntityManager(transactionManager)),
+        ),
     );
   }
 
   async repeatableRead<T>(callback: FinancialTransactionCallback<T>): Promise<T> {
-    return this.manager.transaction('REPEATABLE READ', async (transactionManager) =>
-      callback(FinancialUnitOfWork.fromEntityManager(transactionManager)),
+    return withTelemetrySpan(
+      'database.transaction',
+      {
+        'db.system': 'postgresql',
+        'db.transaction.mode': 'repeatable-read',
+      },
+      () =>
+        this.manager.transaction('REPEATABLE READ', async (transactionManager) =>
+          callback(FinancialUnitOfWork.fromEntityManager(transactionManager)),
+        ),
     );
   }
 

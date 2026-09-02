@@ -4,6 +4,7 @@ import type { WalletRepositoryPort } from '../../../modules/wagering/application
 import { WalletAlreadyExistsError, type Wallet } from '../../../modules/wagering/domain';
 import { WalletEntity } from '../entities/wallet.entity';
 import { WalletMapper } from '../mappers/wallet.mapper';
+import { withTelemetrySpan } from '../../telemetry';
 
 export class TypeOrmWalletRepository implements WalletRepositoryPort {
   private readonly repository: Repository<WalletEntity>;
@@ -18,12 +19,18 @@ export class TypeOrmWalletRepository implements WalletRepositoryPort {
   }
 
   async findByIdForUpdate(id: string): Promise<Wallet | null> {
-    const entity = await this.repository
-      .createQueryBuilder('wallet')
-      .where('wallet.id = :id', { id })
-      .setLock('pessimistic_write')
-      .getOne();
-    return entity === null ? null : WalletMapper.toDomain(entity);
+    return withTelemetrySpan(
+      'wallet.lock',
+      { 'wallet.id': id, 'db.lock.mode': 'pessimistic-write' },
+      async () => {
+        const entity = await this.repository
+          .createQueryBuilder('wallet')
+          .where('wallet.id = :id', { id })
+          .setLock('pessimistic_write')
+          .getOne();
+        return entity === null ? null : WalletMapper.toDomain(entity);
+      },
+    );
   }
 
   async findByPlayerAndCurrency(playerId: string, currency: string): Promise<Wallet | null> {

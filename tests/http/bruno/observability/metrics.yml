@@ -1,0 +1,31 @@
+info:
+  name: Prometheus metrics
+  type: http
+  seq: 1
+  tags:
+    - phase-12a
+    - smoke
+
+http:
+  method: GET
+  url: '{{baseUrl}}/metrics'
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: '200'
+    - expression: res.headers['content-type']
+      operator: contains
+      value: text/plain
+    - expression: res.body
+      operator: contains
+      value: '# TYPE'
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Confirma o endpoint Prometheus da subfase obrigatória 12A.

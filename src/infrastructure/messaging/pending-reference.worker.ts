@@ -13,6 +13,7 @@ import type {
 import type { Clock, IdGenerator, RetryPolicy } from '../../modules/wagering/domain';
 import { WagerTransactionStatus } from '../../modules/wagering/domain';
 import { PendingReferenceWorkerMetrics } from './pending-reference-worker.metrics';
+import { withTelemetrySpan } from '../telemetry';
 
 export interface PendingReferenceWorkerOptions {
   readonly enabled: boolean;
@@ -120,6 +121,18 @@ export class PendingReferenceWorker {
   }
 
   private async processClaim(claim: PendingReferenceClaim): Promise<ClaimOutcome> {
+    return withTelemetrySpan(
+      'pending_reference.process',
+      {
+        'wager.transaction.id': claim.transaction.id,
+        'wager.wallet.id': claim.transaction.walletId,
+        'wager.kind': claim.transaction.kind,
+      },
+      () => this.processClaimInternal(claim),
+    );
+  }
+
+  private async processClaimInternal(claim: PendingReferenceClaim): Promise<ClaimOutcome> {
     const now = this.clock.now();
     const expiresNow =
       claim.attempts >= this.options.maxAttempts ||
@@ -129,6 +142,7 @@ export class PendingReferenceWorker {
       const result = await this.processor.execute({
         ...toProcessInput(claim),
         expirePendingReference: expiresNow,
+        source: 'worker',
       });
 
       if (result.status === WagerTransactionStatus.Processed) {
@@ -245,6 +259,7 @@ function toProcessInput(claim: PendingReferenceClaim): ProcessWagerTransactionIn
     referenceExternalTransactionId: transaction.referenceExternalTransactionId,
     correlationId: transaction.id,
     causationId: transaction.id,
+    source: 'worker',
   };
 }
 

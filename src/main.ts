@@ -14,6 +14,7 @@ import { MoneyDto } from './common/http/money.dto';
 import { correlationMiddleware } from './infrastructure/logging/correlation.middleware';
 import { httpTracingMiddleware, shutdownTelemetry } from './infrastructure/telemetry';
 import { HealthResponseDto } from './modules/health/health.dto';
+import { HealthService } from './modules/health/health.service';
 import {
   CreateWalletDto,
   WalletLedgerEntryDto,
@@ -73,6 +74,7 @@ export async function bootstrap(): Promise<void> {
   const host = config.get('app.host', { infer: true });
   await app.listen(port, host);
   logger.log(`HTTP server listening on ${host}:${port}`, 'Bootstrap');
+  const healthService = app.get(HealthService);
 
   let shutdownStarted = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
@@ -81,6 +83,7 @@ export async function bootstrap(): Promise<void> {
     }
 
     shutdownStarted = true;
+    healthService.markShuttingDown();
     logger.log(`Received ${signal}; shutting down`, 'Bootstrap');
 
     try {

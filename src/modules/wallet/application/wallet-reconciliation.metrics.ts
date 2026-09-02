@@ -12,8 +12,11 @@ export class WalletReconciliationMetrics {
     metricNames.map((name) => [name, 0]),
   );
 
+  constructor(private readonly telemetry: TelemetryMetrics = getTelemetryMetrics()) {}
+
   increment(name: WalletReconciliationMetricName): void {
     this.values.set(name, (this.values.get(name) ?? 0) + 1);
+    this.telemetry.increment(`wagering.reconciliation.${name}`);
   }
 
   snapshot(): WalletReconciliationMetricsSnapshot {
@@ -22,3 +25,7 @@ export class WalletReconciliationMetrics {
     ) as WalletReconciliationMetricsSnapshot;
   }
 }
+import {
+  getTelemetryMetrics,
+  type TelemetryMetrics,
+} from '../../../infrastructure/telemetry/metrics';

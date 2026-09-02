@@ -1,3 +1,5 @@
+import { performance } from 'node:perf_hooks';
+
 import type { Clock, IdGenerator } from '../domain';
 import {
   DependencyUnavailableError,
@@ -31,10 +33,18 @@ import {
   toWagerTransactionSubmissionView,
   type HttpWagerTransactionKind,
   type ProcessWagerTransactionInput,
+  type WagerMetricSource,
   type WagerTransactionSubmissionView,
 } from './transaction.types';
 import { ExponentialRetryPolicy } from '../domain/retry-policy';
 import type { RetryPolicy } from '../domain/retry-policy';
+import {
+  recordLockConflict,
+  recordWagerRetry,
+  recordWagerTransaction,
+  recordWagerTransactionFailure,
+} from '../../../infrastructure/telemetry/metrics';
+import { withTelemetrySpan } from '../../../infrastructure/telemetry';
 
 export type Sleep = (delayMs: number) => Promise<void>;
 
@@ -62,6 +72,35 @@ export class ProcessWagerTransactionUseCase {
   ) {}
 
   async execute(input: ProcessWagerTransactionInput): Promise<WagerTransactionSubmissionView> {
+    const startedAt = performance.now();
+    const source: WagerMetricSource = input.source ?? (input.inbox === undefined ? 'http' : 'sqs');
+
+    return withTelemetrySpan(
+      'wager.transaction.process',
+      {
+        'wager.kind': input.kind,
+        'wager.source': source,
+        'wager.wallet.id': input.walletId,
+        'wager.provider.id': input.providerId,
+        'wager.external_transaction.id': input.externalTransactionId,
+      },
+      async () => {
+        try {
+          const result = await this.executeWithRetry(input, source);
+          recordWagerTransaction(result, input.kind, source, performance.now() - startedAt);
+          return result;
+        } catch (error: unknown) {
+          recordWagerTransactionFailure(input.kind, source, performance.now() - startedAt);
+          throw error;
+        }
+      },
+    );
+  }
+
+  private async executeWithRetry(
+    input: ProcessWagerTransactionInput,
+    source: WagerMetricSource,
+  ): Promise<WagerTransactionSubmissionView> {
     const payloadHash = hashWagerPayload(input);
     let attempt = 0;
 
@@ -73,6 +112,10 @@ export class ProcessWagerTransactionUseCase {
           throw error;
         }
 
+        recordWagerRetry(source);
+        if (isLockConflict(error)) {
+          recordLockConflict(source);
+        }
         attempt += 1;
         if (!this.retryPolicy.canRetry(attempt)) {
           throw new DependencyUnavailableError();
@@ -583,4 +626,18 @@ export function isTransientFinancialError(error: unknown): boolean {
   ]);
 
   return codes.some((code) => transientCodes.has(code));
+}
+
+function isLockConflict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    driverError?: { code?: unknown };
+  };
+  return [candidate.code, candidate.driverError?.code].some(
+    (code) => code === '55P03' || code === '40P01',
+  );
 }

@@ -15,9 +15,10 @@ A base inicial contém:
 - correlation id compartilhado entre HTTP, SQS, logs e eventos;
 - desligamento ordenado do SDK.
 
-Nessa fase, o comportamento é provado com exporter in-memory e com endpoint OTLP
-indisponível. A configuração do Collector/Tempo pertence à fase posterior, evitando
-misturar instrumentação da aplicação com provisionamento dos backends.
+Na subfase 12A, o comportamento é provado com exporter in-memory, endpoint OTLP
+indisponível e `/metrics` em formato Prometheus servido pela própria API. A configuração
+do Collector/Tempo pertence à fase posterior, evitando misturar instrumentação da
+aplicação com provisionamento dos backends.
 
 As fases de domínio adicionam spans e métricas de negócio no momento em que cada fluxo
 é implementado. A fase dedicada à observabilidade completa métricas, redaction, health
@@ -65,6 +66,10 @@ API/workers ──JSON stdout──> Grafana Alloy ─────────�
 
 Readiness depende de PostgreSQL e SQS, nunca do collector ou dos backends visuais.
 Liveness verifica somente o processo.
+
+`GET /metrics` é público e expõe somente métricas com labels de baixa cardinalidade
+(`kind`, `status` e `source`, quando aplicável). IDs de transação, wallet, provider,
+mensagem e evento ficam disponíveis em logs/traces, mas nunca são labels.
 
 ## Risco Bun/OpenTelemetry
 
