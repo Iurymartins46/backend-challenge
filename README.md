@@ -4,7 +4,7 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–10 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–11 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
@@ -12,7 +12,9 @@ outbox.
 > implementados; o consumidor SQS com inbox persistente, redelivery e ack pós-commit
 > também está implementado; o publisher da outbox com claim/lease, retry e recuperação
 > de crash também está implementado; o worker agendado de referências pendentes usa
-> claim/lease persistente, backoff e expiração auditável. O
+> claim/lease persistente, backoff e expiração auditável; a reconciliação lê saldo e
+> ledger no mesmo snapshot `REPEATABLE READ`, evidencia divergências sem corrigi-las
+> automaticamente. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação

@@ -10,6 +10,7 @@ import type {
 } from '../../../src/modules/wagering/application/ports';
 import type { Clock, IdGenerator } from '../../../src/modules/wagering/domain';
 import {
+  LedgerDirection,
   WagerTransactionKind,
   WagerTransactionStatus,
   WalletAlreadyExistsError,
@@ -103,6 +104,19 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
         entries: this.storedLedgerEntries.filter((entry) => entry.walletId === id),
         hasMore: false,
       }),
+    summarizeWalletBalance: (id) =>
+      resolved({
+        calculatedBalanceMinor: this.storedLedgerEntries
+          .filter((entry) => entry.walletId === id)
+          .reduce(
+            (balance, entry) =>
+              entry.direction === LedgerDirection.Credit
+                ? balance + entry.money.toMinorUnits()
+                : balance - entry.money.toMinorUnits(),
+            0n,
+          ),
+        checkedEntries: this.storedLedgerEntries.filter((entry) => entry.walletId === id).length,
+      }),
     insert: (entry) => {
       this.storedLedgerEntries.push(entry);
       return resolved(entry);
@@ -126,6 +140,12 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
   };
 
   async transaction<T>(callback: (unitOfWork: FinancialUnitOfWorkPort) => Promise<T>): Promise<T> {
+    return callback(this);
+  }
+
+  async repeatableRead<T>(
+    callback: (unitOfWork: FinancialUnitOfWorkPort) => Promise<T>,
+  ): Promise<T> {
     return callback(this);
   }
 }

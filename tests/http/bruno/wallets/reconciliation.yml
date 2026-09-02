@@ -1,0 +1,33 @@
+info:
+  name: Reconciliar saldo da wallet
+  type: http
+  seq: 4
+  tags:
+    - phase-11
+    - wallet
+
+http:
+  method: POST
+  url: '{{baseUrl}}/wallets/{{walletId}}/reconciliation'
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("reconcilia saldo materializado com o ledger", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.walletId).to.be.a("string").and.not.be.empty;
+          expect(res.body.storedBalance.amount).to.be.a("string");
+          expect(res.body.calculatedBalance.amount).to.be.a("string");
+          expect(res.body.difference.amount).to.equal("0.00");
+          expect(res.body.consistent).to.equal(true);
+          expect(res.body.checkedEntries).to.be.a("number");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: A reconciliação somente lê e evidencia divergências; ela nunca altera o saldo nem o ledger.

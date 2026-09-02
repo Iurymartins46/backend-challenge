@@ -59,6 +59,30 @@ export class WalletLedgerResponseDto {
   nextCursor!: string | null;
 }
 
+export class WalletReconciliationResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  walletId!: string;
+
+  @ApiProperty({ type: () => MoneyDto })
+  storedBalance!: MoneyDto;
+
+  @ApiProperty({ type: () => MoneyDto })
+  calculatedBalance!: MoneyDto;
+
+  @ApiProperty({
+    type: () => MoneyDto,
+    description:
+      'Stored balance minus the balance reconstructed from the ledger. It may be signed.',
+  })
+  difference!: MoneyDto;
+
+  @ApiProperty({ example: true })
+  consistent!: boolean;
+
+  @ApiProperty({ example: 42, minimum: 0 })
+  checkedEntries!: number;
+}
+
 export class WalletIdParamsDto {
   walletId!: string;
 }

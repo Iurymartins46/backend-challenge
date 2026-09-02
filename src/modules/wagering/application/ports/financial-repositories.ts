@@ -73,6 +73,7 @@ export interface WalletLedgerRepositoryPort {
   findByTransactionId(transactionId: string): Promise<WalletLedgerEntry | null>;
   findByWalletId(walletId: string): Promise<readonly WalletLedgerEntry[]>;
   findByWalletIdPage(walletId: string, query: WalletLedgerPageQuery): Promise<WalletLedgerPage>;
+  summarizeWalletBalance(walletId: string): Promise<WalletLedgerBalanceSummary>;
   insert(entry: WalletLedgerEntry): Promise<WalletLedgerEntry>;
   save(entry: WalletLedgerEntry): Promise<WalletLedgerEntry>;
 }
@@ -90,6 +91,12 @@ export interface WalletLedgerPageQuery {
 export interface WalletLedgerPage {
   readonly entries: readonly WalletLedgerEntry[];
   readonly hasMore: boolean;
+}
+
+/** Signed sum reconstructed from immutable ledger entries for one wallet. */
+export interface WalletLedgerBalanceSummary {
+  readonly calculatedBalanceMinor: bigint;
+  readonly checkedEntries: number;
 }
 
 export interface InboxMessageRepositoryPort {

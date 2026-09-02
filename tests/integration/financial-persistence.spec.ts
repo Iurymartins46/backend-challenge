@@ -361,6 +361,10 @@ integration('financial PostgreSQL persistence', () => {
         rootUnitOfWork.transaction(async (transactionalUnitOfWork) =>
           callback({ ...transactionalUnitOfWork, outbox: failingOutbox }),
         ),
+      repeatableRead: (callback) =>
+        rootUnitOfWork.repeatableRead(async (transactionalUnitOfWork) =>
+          callback({ ...transactionalUnitOfWork, outbox: failingOutbox }),
+        ),
     };
     const walletId = randomUUID();
     const openingTransactionId = randomUUID();
@@ -783,6 +787,10 @@ integration('financial PostgreSQL persistence', () => {
       outbox: failingOutbox,
       transaction: (callback) =>
         rootUnitOfWork.transaction(async (transactionalUnitOfWork) =>
+          callback({ ...transactionalUnitOfWork, outbox: failingOutbox }),
+        ),
+      repeatableRead: (callback) =>
+        rootUnitOfWork.repeatableRead(async (transactionalUnitOfWork) =>
           callback({ ...transactionalUnitOfWork, outbox: failingOutbox }),
         ),
     };

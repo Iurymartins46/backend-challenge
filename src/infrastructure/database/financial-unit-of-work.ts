@@ -45,6 +45,12 @@ export class FinancialUnitOfWork implements FinancialUnitOfWorkPort {
     );
   }
 
+  async repeatableRead<T>(callback: FinancialTransactionCallback<T>): Promise<T> {
+    return this.manager.transaction('REPEATABLE READ', async (transactionManager) =>
+      callback(FinancialUnitOfWork.fromEntityManager(transactionManager)),
+    );
+  }
+
   get walletRepository(): TypeOrmWalletRepository {
     return this.wallets;
   }

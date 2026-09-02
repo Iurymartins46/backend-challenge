@@ -127,6 +127,20 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
         entries: this.storedLedgerEntries.filter((entry) => entry.walletId === walletId),
         hasMore: false,
       }),
+    summarizeWalletBalance: (walletId) =>
+      Promise.resolve({
+        calculatedBalanceMinor: this.storedLedgerEntries
+          .filter((entry) => entry.walletId === walletId)
+          .reduce(
+            (balance, entry) =>
+              entry.direction === LedgerDirection.Credit
+                ? balance + entry.money.toMinorUnits()
+                : balance - entry.money.toMinorUnits(),
+            0n,
+          ),
+        checkedEntries: this.storedLedgerEntries.filter((entry) => entry.walletId === walletId)
+          .length,
+      }),
     insert: (entry) => {
       this.storedLedgerEntries.push(entry);
       return Promise.resolve(entry);
@@ -151,6 +165,12 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
   };
 
   async transaction<T>(callback: (unitOfWork: FinancialUnitOfWorkPort) => Promise<T>): Promise<T> {
+    return callback(this);
+  }
+
+  async repeatableRead<T>(
+    callback: (unitOfWork: FinancialUnitOfWorkPort) => Promise<T>,
+  ): Promise<T> {
     return callback(this);
   }
 }

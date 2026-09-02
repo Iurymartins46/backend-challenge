@@ -61,6 +61,10 @@ workers usam `FOR UPDATE SKIP LOCKED`, sem lock global. O worker de referências
 `reference_attempts`, `reference_locked_by` e `reference_locked_until` no mesmo claim
 curto; a agenda continua em `next_reference_attempt_at`.
 
+A reconciliação usa uma transação `REPEATABLE READ` exclusiva de leitura: a wallet e o
+`SUM(CREDIT amount_minor) - SUM(DEBIT amount_minor)` são consultados no mesmo snapshot.
+Ela não adquire lock de escrita nem atualiza qualquer tabela.
+
 ## Migrations
 
 Migrations são versionadas e reversíveis. A suíte executa `up`, valida constraints,

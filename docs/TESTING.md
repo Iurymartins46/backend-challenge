@@ -40,6 +40,11 @@ REFUND/ROLLBACK antes da referência, três workers concorrentes, agenda preserv
 restart lógico e TTL auditável. O clock fake avança a agenda sem sleeps. Execute-a com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/pending-reference-worker.spec.ts`.
 
+`reconciliation.spec.ts` adiciona a prova da Fase 11 contra PostgreSQL: wallet sem
+lançamentos, opening e operações múltiplas, uma escrita confirmada entre as leituras do
+snapshot e uma divergência injetada por fixture SQL sem ajuste automático. Execute-a com
+`RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/reconciliation.spec.ts`.
+
 ## Concorrência distribuída
 
 Um harness sobe pelo menos três processos independentes contra o mesmo banco e filas.

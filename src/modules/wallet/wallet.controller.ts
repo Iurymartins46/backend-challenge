@@ -19,6 +19,7 @@ import {
   ApiOperation,
   ApiParam,
   ApiQuery,
+  ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
 
@@ -30,6 +31,7 @@ import {
   GetWalletUseCase,
   InvalidLedgerCursorError,
   ListWalletLedgerUseCase,
+  ReconcileWalletUseCase,
 } from './application';
 import {
   createWalletSchema,
@@ -39,6 +41,7 @@ import {
   WalletLedgerQueryDto,
   walletLedgerQuerySchema,
   WalletLedgerResponseDto,
+  WalletReconciliationResponseDto,
   WalletResponseDto,
 } from './presentation/wallet.dto';
 
@@ -49,6 +52,7 @@ export class WalletController {
     private readonly createWalletUseCase: CreateWalletUseCase,
     private readonly getWalletUseCase: GetWalletUseCase,
     private readonly listWalletLedgerUseCase: ListWalletLedgerUseCase,
+    private readonly reconcileWalletUseCase: ReconcileWalletUseCase,
   ) {}
 
   @Post()
@@ -126,5 +130,26 @@ export class WalletController {
       after,
       limit: query.limit ?? 50,
     });
+  }
+
+  @Post(':walletId/reconciliation')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reconcile the stored wallet balance with its immutable ledger',
+    description:
+      'Reads the wallet and signed ledger aggregate in one REPEATABLE READ snapshot. Divergences are reported but never corrected automatically.',
+  })
+  @ApiParam({ name: 'walletId', format: 'uuid' })
+  @ApiOkResponse({ type: WalletReconciliationResponseDto })
+  @ApiBadRequestResponse({ type: ErrorResponseDto })
+  @ApiNotFoundResponse({ type: ErrorResponseDto })
+  @ApiServiceUnavailableResponse({
+    type: ErrorResponseDto,
+    description: 'Transient PostgreSQL unavailability. Retry according to the Retry-After header.',
+  })
+  async reconcile(
+    @Param({ schema: walletIdParamsSchema }) params: WalletIdParamsDto,
+  ): Promise<WalletReconciliationResponseDto> {
+    return this.reconcileWalletUseCase.execute(params.walletId);
   }
 }

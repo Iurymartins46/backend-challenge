@@ -6,7 +6,7 @@
 > vertical HTTP de wallet/ledger, o processamento HTTP síncrono de BET/WIN/LOSS da
 > Fase 6, de REFUND/ROLLBACK da Fase 7 e o consumidor SQS/inbox da Fase 8 já existem;
 > o publisher da outbox da Fase 9 já existe; o worker agendado de referências pendentes
-> da Fase 10 também existe.
+> da Fase 10 também existe. A reconciliação da Fase 11 também existe.
 
 ## 1. Objetivo arquitetural
 
@@ -215,6 +215,18 @@ docker/
 filas. `docker/compose.observability.yaml` é um overlay com Collector, Prometheus,
 Tempo, Loki, Alloy e Grafana. São serviços distintos, mas ficam no mesmo repositório
 para manter o ambiente local reproduzível.
+
+### 4.11 Reconciliação somente para leitura
+
+`POST /wallets/:walletId/reconciliation` abre uma transação PostgreSQL em
+`REPEATABLE READ` e lê nela tanto a wallet materializada quanto a soma assinada do ledger
+imutável. Portanto, uma movimentação confirmada durante a consulta pertence inteira ao
+snapshot seguinte, nunca a uma combinação de saldo anterior com ledger posterior.
+
+O resultado expõe o saldo persistido, o saldo calculado, a diferença assinada e a
+quantidade de lançamentos verificados, todos os valores monetários como strings. Uma
+divergência gera log de erro e métrica process-local, mas não aciona escrita, ajuste ou
+reprocessamento automático: a correção exige investigação operacional explícita.
 
 ## 5. Transação financeira
 
