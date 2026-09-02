@@ -16,7 +16,10 @@ import type {
   SqsQueuePort,
   SqsTransportMessage,
 } from '../../../src/infrastructure/messaging/sqs-queue.port';
-import { WagerTransactionStatus } from '../../../src/modules/wagering/domain';
+import {
+  WagerTransactionStatus,
+  DependencyUnavailableError,
+} from '../../../src/modules/wagering/domain';
 
 const receivedAt = new Date('2026-09-01T12:00:00.000Z');
 
@@ -186,5 +189,52 @@ describe('SQS command consumer', () => {
 
     expect(queue.deleted).toHaveLength(0);
     expect(consumer.metrics.snapshot().permanentFailures).toBe(1);
+  });
+
+  test('acknowledges a pending-reference replay only after the handler commits', async () => {
+    const queue = new FakeQueue();
+    const handler: SqsCommandHandlerPort = {
+      handle: () =>
+        Promise.resolve({
+          envelope: parseWagerTransactionCommandEnvelope(
+            JSON.stringify(commandEnvelope()),
+            receivedAt,
+          ),
+          result: {
+            transactionId: 'pending-transaction-1',
+            status: WagerTransactionStatus.PendingReference,
+            idempotentReplay: true,
+          },
+        }),
+    };
+    const consumer = new SqsCommandConsumer(queue, handler, options(), new SqsConsumerMetrics());
+
+    await consumer.processMessage(transportMessage(JSON.stringify(commandEnvelope())));
+
+    expect(queue.deleted).toEqual(['receipt-1']);
+    expect(consumer.metrics.snapshot()).toMatchObject({
+      messagesReceived: 1,
+      messagesPendingReference: 1,
+      duplicateMessages: 1,
+      messagesAcked: 1,
+    });
+  });
+
+  test('keeps a transient dependency failure available for redelivery', async () => {
+    const queue = new FakeQueue();
+    const handler: SqsCommandHandlerPort = {
+      handle: () => Promise.reject(new DependencyUnavailableError()),
+    };
+    const consumer = new SqsCommandConsumer(queue, handler, options(), new SqsConsumerMetrics());
+
+    await consumer.processMessage(transportMessage(JSON.stringify(commandEnvelope())));
+
+    expect(queue.deleted).toHaveLength(0);
+    expect(consumer.metrics.snapshot()).toMatchObject({
+      messagesReceived: 1,
+      transientFailures: 1,
+      permanentFailures: 0,
+      messagesAcked: 0,
+    });
   });
 });
