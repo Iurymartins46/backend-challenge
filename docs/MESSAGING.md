@@ -22,7 +22,7 @@ Deduplication id do broker é otimização; PostgreSQL continua sendo a garantia
 - envelope permanentemente inválido: DLQ;
 - em SIGTERM: parar polling, drenar e devolver visibility do que não concluir.
 
-O contrato público aceito pela Fase 8 segue exatamente o envelope publicado no
+O contrato público aceito segue exatamente o envelope publicado no
 `docs/CHALLENGE.md`:
 
 ```json

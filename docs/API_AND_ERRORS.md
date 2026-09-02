@@ -2,7 +2,7 @@
 
 ## 1. Swagger
 
-O bootstrap configura `@nestjs/swagger` desde a Fase 1:
+O bootstrap configura `@nestjs/swagger`:
 
 - interface em `GET /docs`;
 - OpenAPI JSON em `GET /docs-json`;
@@ -11,7 +11,7 @@ O bootstrap configura `@nestjs/swagger` desde a Fase 1:
 - exemplos de request/response;
 - descrição dos códigos de erro que cada endpoint pode retornar.
 
-Cada fase que adiciona uma rota deve adicionar, na mesma alteração, seus schemas,
+Cada alteração que adiciona uma rota deve adicionar, na mesma mudança, seus schemas,
 exemplos, respostas de sucesso e erros. O Swagger não deve ser escrito somente no fim.
 
 ## 2. Formato padrão
@@ -231,9 +231,9 @@ Retry-After: 2
 persistida. `idempotentReplay` é específico da submissão de transações. `errors` é
 obrigatório e deve conter pelo menos um item em toda resposta de erro.
 
-## 8. Evolução por fases
+## 8. Evolução do contrato
 
-Na Fase 1 são criados:
+A base do contrato contém:
 
 - `ErrorResponseDto`;
 - `ErrorItemDto`, com `code`, `detail` e `field` opcional;
@@ -245,7 +245,7 @@ O mesmo `ErrorResponseDto` atende validação, domínio, conflito e infraestrutu
 módulo adiciona seus códigos ao catálogo e acrescenta somente campos opcionais já
 previstos, como `transactionId` ou `idempotentReplay`. Não criar formatos paralelos.
 
-Nas Fases 6–7, `POST /wagering/transactions` aceita `BET`, `WIN`, `LOSS`, `REFUND` e
+`POST /wagering/transactions` aceita `BET`, `WIN`, `LOSS`, `REFUND` e
 `ROLLBACK`. `WIN` pode informar uma referência opcional; `REFUND` exige referência de
 `BET`, e `ROLLBACK` exige referência de `BET`, `WIN` ou `REFUND`. A chave do header é
 arbitrada com o par `(providerId, idempotencyKey)` no PostgreSQL e o hash
@@ -262,7 +262,7 @@ submissão idêntica pode resolver a pendência depois que a referência for con
 `GET /providers/:providerId/wagering/transactions/:externalTransactionId` expõem um
 DTO de leitura, nunca a entidade TypeORM.
 
-Na Fase 11, `POST /wallets/:walletId/reconciliation` retorna `200` com
+`POST /wallets/:walletId/reconciliation` retorna `200` com
 `storedBalance`, `calculatedBalance`, `difference` assinada, `consistent` e
 `checkedEntries`. Wallet inexistente retorna `404/error.wallet.not_found`; uma
 indisponibilidade transitória do PostgreSQL retorna `503` com

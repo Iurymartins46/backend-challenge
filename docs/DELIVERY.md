@@ -1,9 +1,8 @@
 # Registro final da entrega
 
-Este documento fecha as Fases 1–14, a subfase obrigatória 12A e registra o experimento
-opcional da Fase 16. Ele reúne o diagrama final, a rastreabilidade das garantias, o
-roteiro de demonstração e os limites que continuam deliberados. `docs/CHALLENGE.md`
-permanece como o enunciado original.
+Este documento reúne a rastreabilidade das garantias implementadas, o roteiro de
+demonstração, as evidências de validação e os limites deliberados. O experimento de
+carga é opcional. `docs/CHALLENGE.md` permanece como o enunciado original.
 
 ## Como validar do zero
 
@@ -89,7 +88,7 @@ do commit.
 | BET/WIN/LOSS/REFUND/ROLLBACK              | `ProcessWagerTransactionUseCase` e regras puras                                      | `tests/unit/domain/wagering-domain.spec.ts` e `tests/unit/wagering/process-wager-transaction.use-case.spec.ts`; integração HTTP/referências |
 | Concorrência por wallet e três instâncias | lock pessimista por `walletId`; nenhum lock global                                   | oito cenários em `tests/concurrency/distributed-wagering.spec.ts`, com duas BETs de 80, 50 duplicatas e wallets paralelas                   |
 | Idempotência persistente                  | índice único, hash SHA-256 canônico e snapshot de resultado                          | `tests/integration/financial-persistence.spec.ts`, `http-wagering-api.spec.ts` e replay após restart no harness                             |
-| Referência fora de ordem                  | `PENDING_REFERENCE`, claim/lease, backoff e TTL                                      | `tests/integration/pending-reference-worker.spec.ts`, `phase7-references.spec.ts` e cenário distribuído de REFUND                           |
+| Referência fora de ordem                  | `PENDING_REFERENCE`, claim/lease, backoff e TTL                                      | `tests/integration/pending-reference-worker.spec.ts`, testes de referências e cenário distribuído de REFUND                                |
 | Inbox, redelivery e DLQ                   | chave `(consumer_name, message_id)`, ack pós-commit e redrive policy                 | `tests/integration/sqs-inbox.spec.ts`; filas e `maxReceiveCount=5` em Compose/harness                                                       |
 | Transactional outbox                      | outbox na UoW, publisher com `SKIP LOCKED`/lease, retry                              | `tests/integration/outbox-publisher.spec.ts`; publisher concorrente e crash no harness                                                      |
 | Reconciliação somente leitura             | snapshot `REPEATABLE READ`, diferença assinada, métrica de divergência               | `tests/unit/wallet/reconcile-wallet.use-case.spec.ts` e `tests/integration/reconciliation.spec.ts`                                          |
@@ -137,7 +136,7 @@ O registro abaixo deve refletir a última execução real da suíte e não uma e
 | Smoke HTTP real          | `bun run smoke:http` passou contra API containerizada em `localhost:3000` |
 | Health com falha real    | LocalStack e PostgreSQL: liveness 200 e readiness 503                     |
 
-Na execução real padrão da Fase 16, o cenário hot wallet observou 707 requests na
+Na execução real registrada, o cenário hot wallet observou 707 requests na
 medição, 138,75 RPS, p50/p95/p99 de 128,31/157,20/174,29 ms e zero erros. O cenário
 muitas wallets observou 4.088 requests, 815,80 RPS, p50/p95/p99 de
 16,82/36,35/44,99 ms e zero erros. Não houve divergência wallet/ledger nem conflito de
@@ -154,7 +153,7 @@ uma estimativa de desempenho.
 ## Escopo posterior
 
 - OIDC e validação de JWT não foram iniciados; `AUTH_MODE=none` é um modo de
-  desenvolvimento explícito e a Fase 15 continua posterior.
+  desenvolvimento explícito.
 
 Esses são os únicos itens planejados ainda não implementados.
 

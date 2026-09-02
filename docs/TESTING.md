@@ -16,7 +16,7 @@ PostgreSQL e LocalStack reais executados por Docker Compose. Cobrir:
 - publishers e workers concorrentes;
 - recuperação após reinício.
 
-Os cenários reais da Fase 4 ficam opt-in para que a suíte padrão não toque no banco de
+Os cenários reais ficam opt-in para que a suíte padrão não toque no banco de
 desenvolvimento. `migrations-round-trip.spec.ts` cria um banco PostgreSQL efêmero, prova
 `up/down/up` em schema vazio e o remove ao final. `financial-persistence.spec.ts` usa
 identificadores únicos e não tenta remover lançamentos, respeitando o trigger append-only
@@ -25,29 +25,29 @@ real para criação de wallet, BET, replay e as duas leituras de transação. Co
 o PostgreSQL do Compose saudável, execute
 `RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`.
 
-`sqs-inbox.spec.ts` adiciona a prova da Fase 8 contra PostgreSQL e LocalStack reais:
+`sqs-inbox.spec.ts` prova contra PostgreSQL e LocalStack reais:
 envelope público estrito, inbox atômica, redelivery idempotente, divergência de message
 id, ack somente depois do commit e gauge obtida da DLQ após redrive real. Execute-a isoladamente com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts`.
 
-`outbox-publisher.spec.ts` adiciona a prova da Fase 9 contra PostgreSQL e LocalStack:
+`outbox-publisher.spec.ts` prova contra PostgreSQL e LocalStack:
 claims concorrentes, visibilidade somente após commit, retry após indisponibilidade do
 SQS e recuperação de lease depois de publicar antes da marcação. Execute-a isoladamente
 com `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/outbox-publisher.spec.ts`.
 
-`pending-reference-worker.spec.ts` adiciona a prova da Fase 10 contra PostgreSQL:
+`pending-reference-worker.spec.ts` prova contra PostgreSQL:
 REFUND/ROLLBACK antes da referência, três workers concorrentes, agenda preservada no
 restart lógico e TTL auditável. O clock fake avança a agenda sem sleeps. Execute-a com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/pending-reference-worker.spec.ts`.
 
-`reconciliation.spec.ts` adiciona a prova da Fase 11 contra PostgreSQL: wallet sem
+`reconciliation.spec.ts` prova contra PostgreSQL: wallet sem
 lançamentos, opening e operações múltiplas, uma escrita confirmada entre as leituras do
 snapshot e uma divergência injetada por fixture SQL sem ajuste automático. Execute-a com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/reconciliation.spec.ts`.
 
 ## Concorrência distribuída
 
-`bun run test:concurrency` executa duas vezes o harness da Fase 13, sempre com recursos
+`bun run test:concurrency` executa duas vezes o harness distribuído, sempre com recursos
 novos. Em cada repetição ele cria um banco PostgreSQL efêmero com migrations aplicadas,
 três filas FIFO exclusivas (com DLQ de comandos) e sobe três processos NestJS
 independentes contra esses mesmos recursos. O teardown encerra os processos, remove as
@@ -110,7 +110,7 @@ diretório no Bruno 3+ e selecione o ambiente `local`. Os arquivos da coleção 
 versionados e fazem parte da entrega de cada rota, enquanto valores secretos permanecem
 fora do Git.
 
-Na Fase 1, os cenários manuais cobrem:
+Os cenários manuais cobrem:
 
 - liveness e readiness;
 - rejeição de query inválida com o envelope uniforme de erro;

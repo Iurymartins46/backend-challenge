@@ -1,355 +1,227 @@
 # Arquitetura — Distributed Wagering Processor
 
-> Este documento contém somente as decisões arquiteturais que afetam correção,
-> consistência e evolução do sistema. Detalhes de implementação ficam em `docs/`.
-> O bootstrap da Fase 1, o domínio puro da Fase 3, a persistência da Fase 4, a
-> vertical HTTP de wallet/ledger, o processamento HTTP síncrono de BET/WIN/LOSS da
-> Fase 6, de REFUND/ROLLBACK da Fase 7 e o consumidor SQS/inbox da Fase 8 já existem;
-> o publisher da outbox da Fase 9 já existe; o worker agendado de referências pendentes
-> da Fase 10 também existe. A reconciliação da Fase 11 também existe. A Fase 13 acrescenta
-> uma suíte distribuída que executa três processos NestJS reais contra PostgreSQL e
-> LocalStack isolados para validar as garantias eliminatórias. A consolidação da Fase
-> 14 está registrada em [docs/DELIVERY.md](docs/DELIVERY.md). O runner opcional da Fase
-> 16 usa o mesmo princípio de isolamento para medir HTTP sem alterar o banco de
-> desenvolvimento.
+Este documento registra as decisões que sustentam correção, consistência e evolução do
+serviço. Ele explica o motivo das escolhas e seus trade-offs; contratos operacionais e
+detalhes de uso ficam em [README.md](README.md) e em `docs/`.
 
-## 1. Objetivo arquitetural
+## Objetivo arquitetural
 
-Processar operações financeiras por HTTP e SQS mantendo as invariantes abaixo com
-mensagens duplicadas, fora de ordem, falhas de processo e três ou mais instâncias:
+Processar operações financeiras de apostas por HTTP e SQS sem violar estas invariantes:
 
-- saldo nunca negativo;
-- nenhum débito ou crédito duplicado;
-- toda mudança de saldo possui exatamente um lançamento correspondente no ledger;
-- ledger é imutável;
-- eventos confirmados não são perdidos;
-- replay idempotente devolve o resultado original;
-- wallet materializada e saldo reconstruído pelo ledger permanecem iguais.
+- saldo de wallet nunca negativo;
+- uma alteração de saldo gera exatamente um lançamento de ledger correspondente;
+- ledger não pode ser alterado ou apagado;
+- um comando repetido não produz efeitos financeiros duplicados;
+- eventos confirmados no banco não se perdem por falha entre commit e publicação;
+- wallet materializada e saldo reconstruído pelo ledger permanecem conciliáveis.
 
-O PostgreSQL é a autoridade final dessas garantias. SQS FIFO, locks da aplicação e
-validações de domínio ajudam o processamento, mas não substituem transações,
-constraints e índices únicos.
+O PostgreSQL é a autoridade final. Filas FIFO, locks e validações de domínio reduzem
+risco e melhoram fluxo, mas não substituem transações, constraints e índices únicos.
 
-## 2. Visão do sistema
+## Visão do sistema
 
 ```text
-HTTP ─────────────┐
-                  ├─> ProcessWagerTransaction ─> PostgreSQL
-SQS command ─Inbox┘        │                     wallet + transaction
-                           │                     ledger + inbox + outbox
-                           └─ mesma transação SQL
+HTTP ────────────────────────────────┐
+                                      v
+SQS command ─> Inbox ─> ProcessWagerTransaction ─> PostgreSQL
+                                      │              wallet + transaction
+                                      │              ledger + inbox + outbox
+                                      │                      │ commit
+                                      v                      v
+                          Pending-reference worker     Outbox publisher ─> SQS events
 
-PostgreSQL outbox ─> publishers concorrentes ─> SQS events
-Pending references ─> workers concorrentes ───> mesmo caso de uso financeiro
+HTTP, consumidores e workers ──> logs JSON, métricas e traces
 ```
 
-Entradas HTTP e SQS reutilizam o mesmo caso de uso. Workers não reproduzem regras de
-negócio; apenas selecionam trabalho persistido e chamam a aplicação.
+HTTP, SQS e o worker de referências convergem no mesmo caso de uso financeiro. Isso
+evita regras diferentes conforme a origem do comando. A borda HTTP/SQS valida e adapta;
+o domínio decide; repositories e a Unit of Work persistem.
 
-## 3. Organização e boundaries
+## Organização e limites
 
-O código está dividido em domínio, aplicação, infraestrutura e apresentação:
+- `src/modules/*/domain`: entidades, value objects e regras puras.
+- `src/modules/*`: casos de uso, DTOs, controllers e contratos de portas.
+- `src/infrastructure`: TypeORM, PostgreSQL, SQS, telemetria e logging.
+- `tests/unit`: regras que não dependem de framework ou infraestrutura.
+- `tests/integration` e `tests/concurrency`: provas contra PostgreSQL e LocalStack reais.
 
-- **domínio:** `Money`, agregados, estados, regras e eventos; não importa NestJS,
-  TypeORM ou AWS SDK;
-- **aplicação:** casos de uso e portas; coordena operações sem acessar banco diretamente;
-- **repositórios e Unit of Work:** possuem persistência, locks e fronteira transacional;
-- **infraestrutura:** TypeORM, PostgreSQL, SQS, logging e telemetria;
-- **apresentação:** controllers HTTP, DTOs, Swagger e consumidor SQS.
+Services orquestram casos de uso; repositories são responsáveis por consultas e
+persistência. Operações de escrita recebem DTOs nomeados e executam dentro de uma
+`FinancialUnitOfWork`, evitando que lógica de negócio manipule o banco diretamente.
 
-Entidades TypeORM são separadas das entidades de domínio. Mappers explícitos usam
-`rehydrate()` para reconstruir estado persistido sem reexecutar transições antigas.
+## Decisões arquiteturais
 
-## 4. Decisões arquiteturais
+### Dinheiro em centavos com `bigint`
 
-### 4.1 TypeORM
+**Decisão.** A API recebe e devolve decimal como string (`"25.00"`); o domínio usa
+centavos em `bigint` e o PostgreSQL usa `BIGINT`.
 
-TypeORM é aceito pelo desafio e foi escolhido por familiaridade profissional, reduzindo
-o risco do timebox. A Fase 4 registra entidades de infraestrutura, migration reversível,
-mappers explícitos e `FinancialUnitOfWork`. Todos os writes financeiros usam repositories
-ligados ao mesmo `EntityManager` fornecido pelo Unit of Work; manager global não é usado
-dentro da transação. `BIGINT` permanece string na entidade TypeORM e só é convertido para
-`bigint` no mapper de `Money`.
+**Motivo.** Evita arredondamento IEEE-754 e permite representar o valor com precisão
+idêntica no domínio e no banco.
 
-### 4.2 Dinheiro em centavos com `bigint`
+**Trade-off.** Exige parsing, serialização e mapeamento explícitos; o driver retorna
+`BIGINT` como string e esse limite deve ser respeitado. `NUMERIC` seria adequado para
+escala variável, mas acrescentaria complexidade sem benefício para moeda de duas casas.
 
-O contrato recebe e devolve string decimal com duas casas. O domínio converte para
-centavos em `bigint`, e o PostgreSQL persiste em `BIGINT` junto da moeda `CHAR(3)`.
-Nenhum caminho monetário passa por `number`.
+### Wallet materializada e ledger append-only
 
-Essa decisão é apropriada porque o desafio fixa escala 2. Caso o produto passe a
-aceitar moedas com escalas variáveis ou ultrapasse a faixa de `BIGINT`, o caminho de
-evolução é `NUMERIC(p,s)` e decimal arbitrário.
+**Decisão.** A wallet guarda o saldo corrente; cada alteração gera um lançamento
+imutável com saldo anterior e posterior. O banco impede `UPDATE` e `DELETE` do ledger.
 
-Detalhes: [docs/MONEY.md](docs/MONEY.md).
+**Motivo.** A leitura de saldo é rápida e a origem de cada mudança continua auditável.
+O ledger permite reconstrução e reconciliação independente da lógica da aplicação.
 
-### 4.3 Lock pessimista por wallet
+**Trade-off.** Há dados redundantes que precisam permanecer coerentes. A redundância é
+aceita porque a mesma transação grava wallet e ledger, e constraints/integrações provam
+a invariante. Não há double-entry completo: ele seria um diferencial para um domínio
+contábil mais amplo, mas não é necessário para o escopo atual.
 
-A unidade de concorrência é `walletId`. Toda operação que pode alterar saldo adquire
-`SELECT ... FOR UPDATE` somente na linha da wallet. Isso impede lost update e torna
-determinístico o cenário de duas apostas disputando o mesmo saldo sem criar lock global.
+### PostgreSQL como árbitro de concorrência
 
-Wallets diferentes continuam em paralelo. Deadlocks e timeouts de lock são falhas
-transitórias, com retry limitado da transação completa.
+**Decisão.** Escritas financeiras obtêm lock pessimista `FOR UPDATE` na wallet dentro
+de transação curta; workers elegíveis usam `FOR UPDATE SKIP LOCKED` com leases.
 
-### 4.4 Idempotência persistente
+**Motivo.** O lock serializa débitos concorrentes na mesma wallet e preserva paralelismo
+entre wallets distintas. `SKIP LOCKED` permite múltiplos publishers/workers sem lock
+global e sem processar a mesma linha simultaneamente.
 
-A chave do header é persistida e protegida por índice único. SHA-256 de JSON canônico
-do payload de negócio detecta a reutilização da mesma chave com conteúdo diferente.
+**Trade-off.** Há espera e conflitos em uma hot wallet. Esse custo é preferível a saldo
+negativo ou a uma coordenação distribuída externa. Timeouts de lock e statement evitam
+esperas indefinidas; o teste de carga torna esse limite observável.
 
-A transação persiste `resultBalance` e `resultWalletVersion`. Assim, um replay devolve
-o saldo observado originalmente, mesmo que a wallet tenha mudado depois.
+### Idempotência persistente e hash canônico
 
-### 4.5 Inbox e transactional outbox
+**Decisão.** A transação é identificada por `(providerId, idempotencyKey)` e por
+`(providerId, externalTransactionId)`. O payload de negócio recebe hash SHA-256
+canônico e o resultado é persistido para replay.
 
-Inbox, transação de aposta, wallet, ledger e outbox participam da mesma transação SQL.
-O consumidor SQS recebe exclusivamente o envelope estrito
-`type: "WagerTransactionRequested"` definido no desafio. O `messageId` do envelope é a
-identidade da mensagem de aplicação, também atua como correlation id, e é separado do
-`MessageId` de transporte retornado pelo SQS. O caso de uso calcula o hash financeiro
-normal para idempotência da aposta e a inbox calcula um hash do `data` completo,
-incluindo a chave de idempotência, para detectar reuso divergente do message id.
+**Motivo.** Retries HTTP, redelivery SQS e reinício não podem duplicar débito/crédito.
+O hash distingue a repetição legítima da reutilização indevida da mesma chave.
 
-A inserção da inbox usa a chave `(consumer_name, message_id)` e `ON CONFLICT DO NOTHING`,
-permitindo que duas entregas concorrentes arbitrem a mesma mensagem no PostgreSQL. A
-mensagem é marcada como processada na mesma transação que o caso de uso financeiro;
-`DeleteMessage` só ocorre depois do commit. Falhas transitórias deixam a mensagem
-invisível até a redelivery, enquanto envelopes permanentes permanecem sem ack para a
-redrive policy encaminhá-los à DLQ.
+**Trade-off.** O armazenamento aumenta e uma chave não pode ser reaproveitada para
+outro comando. É uma regra explícita de contrato, mais segura que idempotência apenas
+em memória ou no broker.
 
-O consumidor usa long polling, limite de concorrência, heartbeat de visibility timeout
-e shutdown com drenagem limitada; mensagens ainda em processamento têm a visibilidade
-devolvida ao expirar o timeout de shutdown.
+### Atomicidade por Unit of Work
 
-Publishers da outbox usam claim com lease e `FOR UPDATE SKIP LOCKED`. Publicação é
-at-least-once: morte após publicar e antes de marcar pode duplicar o evento; `eventId`
-estável permite deduplicação no consumidor.
-
-O claim é confirmado em uma transação curta com owner e `locked_until`. A chamada ao SQS
-acontece somente depois desse commit; a marcação de sucesso e o agendamento de retry são
-updates condicionados ao mesmo owner enquanto o lease não expirou. Um publisher parado
-é recuperado quando outro encontra o lease vencido. Falhas usam backoff exponencial com
-jitter; ao atingir o limite operacional, `attempts` fica saturado no teto e o evento
-continua pendente com o atraso máximo, sem descarte silencioso.
+**Decisão.** Wallet, transação, ledger, inbox e outbox são confirmados pela mesma
+transação SQL. Repositories recebem o `EntityManager` transacional da Unit of Work.
 
-Comandos entram em `wager-transactions.fifo`; eventos saem por
-`wager-events.fifo`. Misturar os dois contratos na mesma fila criaria acoplamento e
-risco de o consumidor tratar um evento como comando.
+**Motivo.** Elimina estados parcialmente confirmados: não existe saldo alterado sem
+ledger, comando processado sem inbox ou resultado confirmado sem evento pendente.
 
-Detalhes: [docs/MESSAGING.md](docs/MESSAGING.md).
+**Trade-off.** A transação não engloba SQS, pois não há commit distribuído. Essa
+limitação é resolvida pela outbox, e não por uma tentativa frágil de two-phase commit.
 
-### 4.6 Referências fora de ordem
+### Inbox e confirmação SQS pós-commit
 
-Referência ausente é persistida como `PENDING_REFERENCE`, não tratada como falha do
-transporte. O fluxo síncrono revalida a referência depois do lock da wallet e permite
-que uma nova submissão idempotente conclua a pendência. O worker seleciona registros
-vencidos com `FOR UPDATE SKIP LOCKED`, grava claim/lease e contador de tentativas antes
-de soltar a transação curta e então reutiliza o mesmo caso de uso financeiro e lock da
-wallet. A policy é 2 s exponencial com jitter, teto de 5 min, 10 tentativas e TTL de
-30 min. No limite, o mesmo caso de uso faz a última revalidação sob lock; referência
-ainda ausente gera `REJECTED/error.wager.reference_not_found` e outbox correspondente.
-Crash entre tentativas só deixa o lease expirar: agenda e contador permanecem no banco.
-
-### 4.7 Ledger e garantias no schema
-
-O banco aplica:
-
-- unique wallet por `(playerId, currency)`;
-- unique idempotency key e external transaction por provider;
-- `CHECK balance >= 0`;
-- no máximo um ledger por transação/wallet;
-- aritmética `before ± amount = after` no ledger;
-- unicidade de reversão processada por referência e tipo;
-- trigger que rejeita `UPDATE` e `DELETE` do ledger;
-- FKs compostas que preservam wallet, player e moeda.
-
-A aplicação ainda aplica as mesmas regras para produzir erros de domínio legíveis. As
-constraints são a última defesa contra bugs e escritas concorrentes.
-
-Detalhes: [docs/DATABASE.md](docs/DATABASE.md).
-
-### 4.8 Autenticação adiada, boundary mantido
-
-Autenticação não vale pontos e permanece fora desta entrega. O bootstrap tem
-`ProviderIdentityPort`, guard global e adapter explícito `AUTH_MODE=none`; a suíte
-unitária do guard cobre esse modo.
-
-Uma implementação futura troca apenas o adapter por OIDC externo, preferencialmente
-Keycloak com client credentials. Health permanece público; mensagens SQS são canal
-interno, mas o `providerId` continua validado pelo domínio. Não haverá tabela local de
-senhas.
-
-### 4.9 Observabilidade desde o bootstrap
-
-OpenTelemetry é inicializado antes do NestJS para que auto-instrumentação não perca os
-primeiros imports. A Fase 1 cria resource, propagação, traces básicos, correlation id e
-exporter OTLP configurável. As métricas e spans de negócio entram junto dos casos de
-uso. O consumidor SQS expõe contadores processuais de recebimento, processamento,
-duplicata, rejeição, redelivery transitória, DLQ, ack e heartbeat; eles são
-diagnósticos e não substituem o estado financeiro no PostgreSQL. As subfases 12A e 12B
-estão implementadas; a stack visual permanece opcional para o caminho financeiro.
-
-O publisher da outbox expõe contadores processuais de claims, publicações, falhas,
-retries, leases perdidos e os gauges de quantidade pendente e lag. IDs de eventos e
-wallets ficam em logs/traces, não em labels de métricas.
-
-O worker de referências expõe claims, tentativas, processamentos, reagendamentos,
-expirações, leases perdidos e falhas, além dos gauges de pendências e tentativas
-acumuladas. Esses valores são diagnósticos locais; PostgreSQL continua sendo a fonte da
-verdade.
-
-Logs JSON continuam sendo o contrato primário porque o sinal de logs do SDK JavaScript
-do OpenTelemetry ainda tem maturidade inferior a traces e métricas. Telemetria nunca
-participa da transação financeira nem torna readiness dependente de Grafana.
-
-Detalhes: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
-
-### 4.10 Infraestrutura Docker separada por responsabilidade
-
-Todos os artefatos Docker ficam em `docker/`:
-
-```text
-docker/
-  api/Dockerfile
-  compose.yaml
-  compose.observability.yaml
-  localstack/
-  postgres/
-  observability/
-```
-
-`docker/compose.yaml` contém aplicação, PostgreSQL, LocalStack e inicialização das
-filas. `docker/compose.observability.yaml` adiciona Collector, Prometheus, Tempo, Loki,
-Alloy e Grafana sem alterar o Compose base. Os backends ficam somente na rede interna;
-apenas a interface do Grafana é publicada para o host. O Collector recebe OTLP HTTP e
-exporta traces para o Tempo, Prometheus coleta `/metrics` da API e Alloy coleta stdout
-JSON pelo socket Docker e o envia ao Loki.
-
-### 4.11 Reconciliação somente para leitura
-
-`POST /wallets/:walletId/reconciliation` abre uma transação PostgreSQL em
-`REPEATABLE READ` e lê nela tanto a wallet materializada quanto a soma assinada do ledger
-imutável. Portanto, uma movimentação confirmada durante a consulta pertence inteira ao
-snapshot seguinte, nunca a uma combinação de saldo anterior com ledger posterior.
-
-O resultado expõe o saldo persistido, o saldo calculado, a diferença assinada e a
-quantidade de lançamentos verificados, todos os valores monetários como strings. Uma
-divergência gera log de erro e métrica process-local, mas não aciona escrita, ajuste ou
-reprocessamento automático: a correção exige investigação operacional explícita.
-
-## 5. Transação financeira
-
-Para uma operação nova:
-
-1. validar contrato, canonicalizar payload e calcular hash;
-2. abrir transação SQL e registrar inbox quando a origem for SQS;
-3. arbitrar a idempotency key por índice único;
-4. em replay, comparar hash e devolver snapshot persistido;
-5. adquirir lock da wallet;
-6. revalidar wallet, moeda e referência sob o lock;
-7. executar a transição de domínio;
-8. persistir wallet, ledger, transaction, inbox e outbox;
-9. commit;
-10. somente então responder HTTP ou executar `DeleteMessage`.
-
-Uma falha antes do commit não deixa efeitos parciais. Uma falha depois do commit é
-recuperada por replay, inbox ou outbox.
-
-## 6. Estados e regras essenciais
-
-```text
-PENDING ───────────────> PROCESSED
-   │
-   ├──> PENDING_REFERENCE ──> PROCESSED
-   │            └───────────> REJECTED
-   ├────────────────────────> REJECTED
-   └────────────────────────> FAILED
-```
-
-`PROCESSED`, `REJECTED` e `FAILED` são terminais. `LOSS` processa sem ledger e sem
-alterar a versão da wallet. `REFUND` referencia BET; `ROLLBACK` referencia BET, WIN ou
-REFUND. Valor, provider, player, wallet, moeda e rodada devem corresponder. A abertura
-`OPENING` é uma transação interna do ciclo de vida da wallet: ela grava um único evento
-`WalletBalanceChanged`; os eventos de processamento de apostas começam com a entrada
-de provedor na Fase 6.
-
-A leitura literal adotada é uma reversão processada por `(reference, kind)`: no máximo
-um REFUND e um ROLLBACK diretos para a mesma referência. Essa interpretação deve ser
-confirmada com o avaliador como decisão de produto.
-
-## 7. API e documentação
-
-Swagger está disponível desde o bootstrap e é incrementado a cada endpoint. Erros
-seguem um contrato JSON único com status, título, detalhe, trace id e um array não vazio
-de erros com códigos de máquina.
-Rejeições persistidas podem acrescentar transaction id; validação múltipla pode
-acrescentar uma lista de erros. O schema inicial nasce na Fase 1 e não é reinventado
-por cada módulo.
-
-Detalhes e exemplos: [docs/API_AND_ERRORS.md](docs/API_AND_ERRORS.md). A lista final de
-rotas e o smoke cURL estão em [docs/DELIVERY.md](docs/DELIVERY.md).
-
-## 8. Testes como evidência arquitetural
-
-Testes unitários usam `bun:test`; integração e concorrência usam PostgreSQL e LocalStack
-reais. Cada uma das duas rodadas de `bun run test:concurrency` provisiona um banco e três
-filas FIFO efêmeros, sobe no mínimo três processos NestJS e inclui redelivery, `SIGKILL`
-pós-commit/pré-ack, publishers concorrentes, referência fora de ordem e restart. O hook de crash só existe em
-`NODE_ENV=test` e fica entre o retorno do Unit of Work e o `DeleteMessage`.
-
-O invariante final de todo cenário é wallet igual ao saldo reconstruído pelo ledger.
-
-Detalhes: [docs/TESTING.md](docs/TESTING.md). Os comandos e a evidência registrada para
-a entrega estão em [docs/DELIVERY.md](docs/DELIVERY.md). O experimento opcional de
-carga, seus limites e o formato do relatório estão em [docs/LOAD_TEST.md](docs/LOAD_TEST.md).
-
-## 8.1 Teste de carga opcional
-
-`bun run test:load` cria banco e filas FIFO temporários, aplica as migrations e sobe
-três processos independentes com as garantias financeiras inalteradas. Os cenários de
-hot wallet e muitas wallets têm warm-up, janela de medição e cooldown. O runner mede
-latência p50/p95/p99, throughput, erros, conflitos de lock, backlog/lag da outbox e
-confirma a igualdade entre wallet e ledger. O resultado não estabelece meta de RPS:
-ele é uma observação condicionada à máquina e à configuração registradas no relatório.
-
-## 9. Trade-offs assumidos
-
-| Decisão                    | Benefício                      | Custo                                   |
-| -------------------------- | ------------------------------ | --------------------------------------- |
-| TypeORM                    | menor risco e maior velocidade | não usa o ORM preferencial do enunciado |
-| `bigint` em centavos       | exatidão e aritmética simples  | escala fixa e serialização explícita    |
-| lock pessimista            | correção simples da hot wallet | espera sob contenção                    |
-| outbox at-least-once       | não perde evento confirmado    | publicação duplicada é possível         |
-| autenticação adiada        | protege o caminho crítico      | demo HTTP inicia sem proteção real      |
-| observabilidade em overlay | núcleo local menor             | dashboard não sobe por padrão           |
-
-## 10. Documentos relacionados
-
-- [Enunciado original](docs/CHALLENGE.md)
-- [Plano de implementação](docs/IMPLEMENTATION_PLAN.md)
+**Decisão.** A inbox usa `(consumerName, messageId)` e hash de payload. A mensagem SQS
+só recebe `DeleteMessage` depois do commit financeiro; falhas transitórias fazem
+rollback e redelivery, e mensagens inválidas seguem a redrive policy.
+
+**Motivo.** Garante que uma mensagem apagada já tem seu efeito persistido, enquanto
+redeliveries são replays seguros.
+
+**Trade-off.** O consumidor é at-least-once e pode ver mensagens repetidas. A inbox e
+o caso de uso idempotente absorvem essa repetição; exatamente-once do broker não é
+assumido.
+
+### Transactional outbox com publicação at-least-once
+
+**Decisão.** Eventos entram em `outbox_messages` na mesma transação financeira.
+Publishers fazem claim/lease curto, publicam fora da transação e marcam sucesso somente
+se ainda possuem o lease. Falhas recebem backoff com jitter.
+
+**Motivo.** Uma queda após o commit não perde o evento. Uma queda após publicar e antes
+da marcação o torna reenviável.
+
+**Trade-off.** Um evento pode ser publicado mais de uma vez. O `eventId` é estável e
+consumidores externos devem deduplicá-lo. A alternativa de marcar antes de publicar
+evitaria duplicata, mas poderia perder eventos confirmados — risco inaceitável.
+
+### Referências fora de ordem como estado durável
+
+**Decisão.** Operações dependentes de uma referência ausente ficam
+`PENDING_REFERENCE`, com agenda, tentativas e lease persistidos. Um worker reprocessa
+as pendências com o mesmo caso de uso e o mesmo lock de wallet.
+
+**Motivo.** A ordem entre produtores não é garantida globalmente; rejeitar de imediato
+descartaria operações válidas. Persistir agenda e lease permite recuperação após restart.
+
+**Trade-off.** A conclusão é eventualmente consistente e exige política de expiração.
+Após o TTL, uma última revalidação rejeita de forma auditável, sem ledger, e emite o
+evento de rejeição pela outbox.
+
+### Reconciliação somente para leitura
+
+**Decisão.** A reconciliação consulta wallet e soma do ledger no mesmo snapshot
+`REPEATABLE READ`, calcula a diferença e nunca autocorrige.
+
+**Motivo.** A resposta representa uma fotografia consistente e uma divergência é um
+sinal que precisa de investigação, não uma autorização para modificar dados financeiros.
+
+**Trade-off.** Não há reparo automático. Isso aumenta o trabalho operacional em caso de
+incidente, mas preserva auditabilidade e evita que um diagnóstico destrua evidências.
+
+### Contratos HTTP e autenticação como boundary
+
+**Decisão.** DTOs/schema validam a borda, Swagger publica o contrato e erros usam um
+envelope uniforme com códigos estáveis. A identidade de provedor é uma porta; o adapter
+atual `AUTH_MODE=none` é explícito.
+
+**Motivo.** Clientes podem integrar pelo contrato sem depender de mensagens internas.
+A porta de identidade permite adicionar OIDC/JWT sem acoplar o domínio ao mecanismo.
+
+**Trade-off.** O modo atual é apropriado para demonstração e desenvolvimento, não para
+exposição pública. A autenticação deve ser implantada antes de um ambiente não confiável.
+
+### Observabilidade não bloqueante
+
+**Decisão.** Logs JSON, correlation id, métricas e traces são emitidos desde o
+bootstrap. Exportação OTLP e a stack visual são opcionais e não entram na readiness.
+
+**Motivo.** Falhas financeiras precisam de evidência correlacionável, mas a falha de um
+backend de observabilidade não pode bloquear transações ou saúde da API.
+
+**Trade-off.** Pode haver perda de telemetria durante indisponibilidade do exporter. O
+sistema prefere preservar operação e registrar o problema a transformar observabilidade
+em ponto único de falha.
+
+### Infraestrutura local em Compose
+
+**Decisão.** O Compose base reúne API, PostgreSQL, LocalStack e inicialização das filas;
+o stack visual é um overlay separado. Serviços internos usam nomes DNS do Compose.
+
+**Motivo.** Uma inicialização local é reproduzível, enquanto observabilidade permanece
+opt-in e não pesa no caminho habitual.
+
+**Trade-off.** A API containerizada usa URLs diferentes das do host; `.env.example`
+mantém ambas explícitas para não mascarar essa diferença.
+
+## Estados e fluxo financeiro
+
+Uma operação passa por validação de contrato, identificação de wallet, lock, decisão de
+domínio e persistência atômica. `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK` geram
+lançamentos conforme suas regras; reversões exigem referência e não podem levar o saldo
+abaixo de zero. A referência ausente cria a pendência durável descrita acima.
+
+Um replay com mesma chave e mesmo payload devolve o resultado gravado. Mesma chave ou
+identificador externo com payload incompatível é conflito. Falhas de regra podem ser
+persistidas como `REJECTED`; falhas de infraestrutura fazem rollback e recebem resposta
+transitória. O catálogo de status e códigos está em [docs/API_AND_ERRORS.md](docs/API_AND_ERRORS.md).
+
+## Evidência e documentos relacionados
+
+- [Requisitos do desafio](docs/CHALLENGE.md)
+- [API e erros](docs/API_AND_ERRORS.md)
+- [Banco de dados](docs/DATABASE.md)
 - [Dinheiro](docs/MONEY.md)
-- [Banco e constraints](docs/DATABASE.md)
-- [API, Swagger e erros](docs/API_AND_ERRORS.md)
 - [Mensageria](docs/MESSAGING.md)
 - [Observabilidade](docs/OBSERVABILITY.md)
 - [Estratégia de testes](docs/TESTING.md)
-- [Entrega final, rastreabilidade e apresentação](docs/DELIVERY.md)
+- [Registro de entrega](docs/DELIVERY.md)
 
-## 11. Estado da entrega e limites
-
-As Fases 1–14 e a subfase obrigatória 12A estão implementadas. A aplicação possui
-entrada HTTP e SQS, inbox persistente, transactional outbox, worker de referências,
-reconciliação em `REPEATABLE READ`, métricas, health checks e a suíte distribuída da
-Fase 13. A documentação de entrega relaciona cada garantia a seu teste ou constraint.
-A profundidade da DLQ é lida dos atributos reais do SQS e permanece separada da
-classificação local de falhas permanentes.
-
-Os limites deliberados são:
-
-- `AUTH_MODE=none` é o único adapter disponível; OIDC pertence à Fase 15;
-- o teste de carga da Fase 16 é um diferencial opt-in e não substitui a suíte distribuída;
-- o ledger é de uma entrada por wallet/transação; partidas dobradas continuam sendo
-  diferencial opcional;
-- a reconciliação sinaliza divergências com log e métrica, mas não corrige dados;
-- `bun run check` não provisiona dependências reais. As suítes PostgreSQL/LocalStack
-  e a suíte distribuída exigem os comandos opt-in documentados no README.
+Os testes de unidade protegem regras puras. Integração e concorrência usam PostgreSQL e
+LocalStack reais, incluindo crash pós-commit/pré-ack, múltiplos processos, referências
+fora de ordem, publishers concorrentes e constraints SQL. A lista de evidências está em
+[docs/DELIVERY.md](docs/DELIVERY.md).

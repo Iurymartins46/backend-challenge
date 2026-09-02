@@ -15,7 +15,7 @@ docker/
 ```
 
 - `compose.yaml`: API, PostgreSQL, LocalStack e inicialização das filas;
-- `compose.observability.yaml`: overlay opcional da subfase 12B com Collector,
+- `compose.observability.yaml`: overlay opcional com Collector,
   Prometheus, Tempo, Loki, Alloy e Grafana; somente Grafana publica porta no host;
 - diretórios internos: scripts, configuração e provisioning montados nos containers.
 
