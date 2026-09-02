@@ -21,6 +21,7 @@
     "test:integration": "bun test tests/integration --max-concurrency=1",
     "test:concurrency:once": "RUN_REAL_CONCURRENCY_TESTS=true bun test tests/concurrency --max-concurrency=1",
     "test:concurrency": "bun run test:concurrency:once && bun run test:concurrency:once",
+    "test:load": "bun scripts/load-test.ts",
     "lockfile:check": "bun install --frozen-lockfile --lockfile-only",
     "check": "bun run lockfile:check && bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run smoke:packages && bun run security:scan",
     "docker:config": "docker compose --env-file .env -f docker/compose.yaml config --quiet",

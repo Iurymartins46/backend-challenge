@@ -1,8 +1,9 @@
 # Registro final da entrega
 
-Este documento fecha as Fases 1–14 e a subfase obrigatória 12A. Ele reúne o diagrama
-final, a rastreabilidade das garantias, o roteiro de demonstração e os limites que
-continuam deliberados. `docs/CHALLENGE.md` permanece como o enunciado original.
+Este documento fecha as Fases 1–14, a subfase obrigatória 12A e registra o experimento
+opcional da Fase 16. Ele reúne o diagrama final, a rastreabilidade das garantias, o
+roteiro de demonstração e os limites que continuam deliberados. `docs/CHALLENGE.md`
+permanece como o enunciado original.
 
 ## Como validar do zero
 
@@ -32,6 +33,7 @@ Verificações reais, opt-in e isoladas:
 ```bash
 RUN_REAL_INTEGRATION_TESTS=true bun run test:integration
 bun run test:concurrency
+bun run test:load
 ```
 
 `test:integration` cria bancos temporários para seus cenários e
@@ -92,6 +94,7 @@ do commit.
 | Transactional outbox                      | outbox na UoW, publisher com `SKIP LOCKED`/lease, retry                              | `tests/integration/outbox-publisher.spec.ts`; publisher concorrente e crash no harness                                                      |
 | Reconciliação somente leitura             | snapshot `REPEATABLE READ`, diferença assinada, métrica de divergência               | `tests/unit/wallet/reconcile-wallet.use-case.spec.ts` e `tests/integration/reconciliation.spec.ts`                                          |
 | Observabilidade operacional               | logs JSON, correlation ids, métricas de negócio, gauge real da DLQ, health separado e overlay visual 12B | `tests/unit/logging.spec.ts`, `telemetry.spec.ts`, `health.spec.ts`, `sqs-inbox.spec.ts`, indisponibilidade real, `/metrics` e `docker/observability/` |
+| Teste de carga opcional                   | runner isolado com hot wallet e muitas wallets, três processos, warm-up/medição/cooldown | `scripts/load-test.ts`, [docs/LOAD_TEST.md](LOAD_TEST.md) e execução real abaixo |
 | Contrato HTTP                             | DTOs/schema Zod, Swagger, envelope uniforme de erro                                  | `docs/API_AND_ERRORS.md`, coleção Bruno e `tests/http/curl/smoke.sh`                                                                        |
 | Schema como última defesa                 | FKs, uniques, checks e trigger append-only                                           | SQL direto em `financial-persistence.spec.ts` e no cenário de constraints distribuído                                                       |
 
@@ -105,11 +108,13 @@ do commit.
 4. Executar `bun run test:concurrency`. Destacar a corrida de 50 BETs, o cenário 80/80,
    as wallets distintas, três processos, o crash pós-commit/pré-ack, dois publishers,
    REFUND fora de ordem e restart.
-5. Na apresentação, abrir os logs de uma falha do harness e apontar os
+5. Executar `bun run test:load` e comparar hot wallet com muitas wallets, observando
+   percentis, throughput, conflitos de lock, lag da outbox e a auditoria final.
+6. Na apresentação, abrir os logs de uma falha do harness e apontar os
    `correlationId`s e os últimos logs por processo, sem expor valores financeiros.
-6. Mostrar `POST /wallets/:walletId/reconciliation` e explicar que divergência é
+7. Mostrar `POST /wallets/:walletId/reconciliation` e explicar que divergência é
    sinalizada por resposta, log e métrica, sem autocorreção.
-7. Abrir o Grafana em `http://localhost:3001`, mostrar o dashboard provisionado e
+8. Abrir o Grafana em `http://localhost:3001`, mostrar o dashboard provisionado e
    consultar um trace no Tempo e os logs correlatos no Loki. A stack visual é um overlay
    opcional e não participa da readiness financeira.
 
@@ -124,12 +129,22 @@ O registro abaixo deve refletir a última execução real da suíte e não uma e
 | Banco                    | PostgreSQL 18.6-alpine                                                    |
 | Mensageria               | LocalStack Community 4.14.0, SQS                                          |
 | Container tooling        | Docker 29.7.2; Docker Compose v5.5.0                                      |
-| Máquina                  | Linux 7.0.0-30-generic, x86_64, 22 CPUs, 14 GiB RAM                       |
+| Máquina                  | Linux 7.0.0-30-generic, x86_64, 22 CPUs, 14,99 GiB RAM                   |
 | Suíte unitária           | 76 testes, 288 assertions, 554 ms                                         |
 | Suíte de integração real | 34 testes, 174 assertions, 2,27 s, PostgreSQL/LocalStack e DLQ real       |
 | Suíte distribuída real   | 2 rodadas; 16 execuções, 42 assertions, 47,91 s                           |
+| Suíte de carga real      | 2 cenários; 707/4.088 requests na medição; 0 erros; wallets/ledger consistentes; outbox não drenou em 35 s |
 | Smoke HTTP real          | `bun run smoke:http` passou contra API containerizada em `localhost:3000` |
 | Health com falha real    | LocalStack e PostgreSQL: liveness 200 e readiness 503                     |
+
+Na execução real padrão da Fase 16, o cenário hot wallet observou 707 requests na
+medição, 138,75 RPS, p50/p95/p99 de 128,31/157,20/174,29 ms e zero erros. O cenário
+muitas wallets observou 4.088 requests, 815,80 RPS, p50/p95/p99 de
+16,82/36,35/44,99 ms e zero erros. Não houve divergência wallet/ledger nem conflito de
+lock observado. A outbox chegou a 1.462 pendências no primeiro cenário e a 10.018 no
+segundo; após 35 s de cooldown/drenagem ainda havia 472 e 9.028, respectivamente.
+Esse backlog é uma limitação observada da configuração padrão, não foi ocultado nem
+usado para relaxar as garantias financeiras.
 
 O caminho padrão `bun run docker:up:build` encontrou o Buildx ausente no host; o caminho
 documentado `bun run docker:build:classic` construiu a imagem e `bun run docker:up`
@@ -140,7 +155,6 @@ uma estimativa de desempenho.
 
 - OIDC e validação de JWT não foram iniciados; `AUTH_MODE=none` é um modo de
   desenvolvimento explícito e a Fase 15 continua posterior.
-- O teste de carga da Fase 16 não foi executado.
 
 Esses são os únicos itens planejados ainda não implementados.
 
