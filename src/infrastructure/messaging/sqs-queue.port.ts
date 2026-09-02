@@ -19,6 +19,13 @@ export interface SqsPublishOptions {
   readonly messageDeduplicationId: string;
 }
 
+export interface SqsApproximateMessageCount {
+  readonly visible: number;
+  readonly inFlight: number;
+  readonly delayed: number;
+  readonly total: number;
+}
+
 export interface SqsQueuePort {
   receive(queueName: string, options: SqsReceiveOptions): Promise<readonly SqsTransportMessage[]>;
   delete(queueName: string, receiptHandle: string): Promise<void>;
@@ -28,4 +35,5 @@ export interface SqsQueuePort {
     visibilityTimeoutSeconds: number,
   ): Promise<void>;
   publish(queueName: string, options: SqsPublishOptions): Promise<void>;
+  getApproximateMessageCount(queueName: string): Promise<SqsApproximateMessageCount>;
 }

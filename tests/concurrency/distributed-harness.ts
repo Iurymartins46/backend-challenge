@@ -12,7 +12,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { DataSource } from 'typeorm';
 
 import { entities } from '../../src/infrastructure/database/entities/registry';
-import { WAGER_TRANSACTION_COMMAND_TYPE } from '../../src/infrastructure/messaging/sqs-command-envelope';
+import { WAGER_TRANSACTION_REQUESTED_TYPE } from '../../src/infrastructure/messaging/sqs-command-envelope';
 
 const baseDatabaseUrl =
   process.env.DATABASE_URL ?? 'postgres://wagering:wagering@localhost:5432/wagering';
@@ -166,11 +166,7 @@ export class DistributedHarness {
     return { response, body };
   }
 
-  async sendCommand(
-    input: WagerInput,
-    idempotencyKey: string,
-    correlationId = this.nextCorrelationId(),
-  ): Promise<string> {
+  async sendCommand(input: WagerInput, idempotencyKey: string): Promise<string> {
     const messageId = `phase13-${randomUUID()}`;
     await this.sqs.send(
       new SendMessageCommand({
@@ -179,9 +175,7 @@ export class DistributedHarness {
         MessageDeduplicationId: randomUUID(),
         MessageBody: JSON.stringify({
           messageId,
-          messageType: WAGER_TRANSACTION_COMMAND_TYPE,
-          version: 1,
-          correlationId,
+          type: WAGER_TRANSACTION_REQUESTED_TYPE,
           occurredAt: new Date().toISOString(),
           data: { ...input, idempotencyKey },
         }),
@@ -397,9 +391,12 @@ export class DistributedHarness {
   }
 
   private async startInstances(count: number): Promise<void> {
-    await Promise.all(
-      [...Array.from({ length: count })].map(() => this.startInstance(this.nextPort())),
-    );
+    // Bun can race while resolving/transpiling the same NestJS dependency graph in
+    // multiple fresh processes. Start-up is sequential; the fully initialized
+    // processes still execute every distributed scenario concurrently.
+    for (let index = 0; index < count; index += 1) {
+      await this.startInstance(this.nextPort());
+    }
   }
 
   private async startInstance(port: number, crashAfterCommit = false): Promise<StartedProcess> {

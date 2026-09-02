@@ -135,6 +135,10 @@ export class SqsCommandConsumer {
       const handled = await this.handler.handle(message);
       financialWorkCommitted = true;
       this.recordResult(handled.result.status, handled.result.idempotentReplay);
+      this.logger.log(
+        sqsCommandCompletedLogContext(handled),
+        'SQS command committed; acknowledging transport message.',
+      );
 
       // The handler returns only after the financial transaction committed.
       await this.afterCommitBeforeAck?.(message, handled);
@@ -301,6 +305,26 @@ export function classifySqsMessageFailure(error: unknown): SqsMessageFailureClas
   }
 
   return 'permanent';
+}
+
+export function sqsCommandCompletedLogContext(handled: SqsCommandHandlingResult): Readonly<{
+  correlationId: string;
+  messageId: string;
+  transactionId: string;
+  walletId: string;
+  providerId: string;
+  status: WagerTransactionStatus;
+  idempotentReplay: boolean;
+}> {
+  return {
+    correlationId: handled.envelope.messageId,
+    messageId: handled.envelope.messageId,
+    transactionId: handled.result.transactionId,
+    walletId: handled.envelope.data.walletId,
+    providerId: handled.envelope.data.providerId,
+    status: handled.result.status,
+    idempotentReplay: handled.result.idempotentReplay,
+  };
 }
 
 function safeErrorMessage(error: unknown): string {

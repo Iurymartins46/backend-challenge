@@ -26,8 +26,8 @@ o PostgreSQL do Compose saudável, execute
 `RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`.
 
 `sqs-inbox.spec.ts` adiciona a prova da Fase 8 contra PostgreSQL e LocalStack reais:
-comando válido, inbox atômica, redelivery idempotente, divergência de message id e ack
-somente depois do commit. Execute-a isoladamente com
+envelope público estrito, inbox atômica, redelivery idempotente, divergência de message
+id, ack somente depois do commit e gauge obtida da DLQ após redrive real. Execute-a isoladamente com
 `RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts`.
 
 `outbox-publisher.spec.ts` adiciona a prova da Fase 9 contra PostgreSQL e LocalStack:
@@ -47,11 +47,17 @@ snapshot e uma divergência injetada por fixture SQL sem ajuste automático. Exe
 
 ## Concorrência distribuída
 
-`bun run test:concurrency` habilita o harness da Fase 13. Ele cria um banco PostgreSQL
-efêmero com migrations aplicadas, três filas FIFO exclusivas (com DLQ de comandos) e sobe
-três processos NestJS independentes contra esses mesmos recursos. O teardown encerra os
-processos, remove as filas e elimina o banco; banco de desenvolvimento e filas padrão não
-são reutilizados. PostgreSQL e LocalStack do Compose devem estar saudáveis antes do comando.
+`bun run test:concurrency` executa duas vezes o harness da Fase 13, sempre com recursos
+novos. Em cada repetição ele cria um banco PostgreSQL efêmero com migrations aplicadas,
+três filas FIFO exclusivas (com DLQ de comandos) e sobe três processos NestJS
+independentes contra esses mesmos recursos. O teardown encerra os processos, remove as
+filas e elimina o banco; banco de desenvolvimento e filas padrão não são reutilizados.
+PostgreSQL e LocalStack do Compose devem estar saudáveis antes do comando. Para diagnóstico
+local de uma única passagem, use `bun run test:concurrency:once`.
+
+O workflow de CI executa a integração real e também `bun run test:concurrency`, portanto
+as duas rodadas e as três instâncias fazem parte da validação de cada push/PR para
+`main`.
 
 Promises contra mocks não contam como paralelismo real. As corridas usam uma barreira de
 início e os resultados usam polling com deadline. Em timeout, o harness imprime os

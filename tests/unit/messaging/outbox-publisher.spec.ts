@@ -80,6 +80,15 @@ class FakeQueue implements SqsQueuePort {
     this.published.push({ queueName, options });
     return Promise.resolve();
   }
+
+  getApproximateMessageCount(): Promise<{
+    visible: number;
+    inFlight: number;
+    delayed: number;
+    total: number;
+  }> {
+    return Promise.resolve({ visible: 0, inFlight: 0, delayed: 0, total: 0 });
+  }
 }
 
 class FakeOutboxRepository implements OutboxMessageRepositoryPort {

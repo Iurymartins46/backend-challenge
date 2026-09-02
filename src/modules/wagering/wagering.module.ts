@@ -9,6 +9,7 @@ import {
   type SqsCommandConsumerOptions,
 } from '../../infrastructure/messaging/sqs-command.consumer';
 import { SqsConsumerMetrics } from '../../infrastructure/messaging/sqs-consumer.metrics';
+import { SqsDlqMetricsMonitor } from '../../infrastructure/messaging/sqs-dlq-metrics.monitor';
 import { SqsWagerCommandHandler } from '../../infrastructure/messaging/sqs-command-handler';
 import {
   OutboxPublisher,
@@ -101,6 +102,20 @@ export const PENDING_REFERENCE_WORKER_METRICS = Symbol('PENDING_REFERENCE_WORKER
     {
       provide: SQS_CONSUMER_METRICS,
       useFactory: (): SqsConsumerMetrics => new SqsConsumerMetrics(),
+    },
+    {
+      provide: SqsDlqMetricsMonitor,
+      inject: [SQS_QUEUE_PORT, SQS_CONSUMER_METRICS, ConfigService],
+      useFactory: (
+        queue: SqsQueuePort,
+        metrics: SqsConsumerMetrics,
+        config: ConfigService<AppConfig, true>,
+      ) =>
+        new SqsDlqMetricsMonitor(queue, metrics, {
+          enabled: config.get('messaging.consumerEnabled', { infer: true }),
+          queueName: config.get('messaging.commandDlqName', { infer: true }),
+          refreshIntervalMs: 5_000,
+        }),
     },
     {
       provide: SQS_OUTBOX_PUBLISHER_OPTIONS,

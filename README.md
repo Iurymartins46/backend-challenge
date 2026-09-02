@@ -4,7 +4,7 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–14 e a subfase obrigatória 12A implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** as Fases 1–14 e a subfase obrigatória 12A estão implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
@@ -14,8 +14,9 @@ outbox.
 > de crash também está implementado; o worker agendado de referências pendentes usa
 > claim/lease persistente, backoff e expiração auditável; a reconciliação lê saldo e
 > ledger no mesmo snapshot `REPEATABLE READ`, evidencia divergências sem corrigi-las
-> automaticamente. O
-> enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
+> automaticamente. A auditoria atual e suas provas estão em
+> [docs/AUDIT_PHASES_1_14.md](docs/AUDIT_PHASES_1_14.md). O enunciado original foi
+> preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 Esta entrega não implementa a subfase visual 12B, autenticação OIDC da Fase 15 nem o
 teste de carga da Fase 16. O registro final de evidências, limitações e roteiro de
@@ -128,18 +129,18 @@ desenvolvimento usado na avaliação.
 
 ## Endpoints e filas
 
-| Método | Endpoint | Finalidade |
-|---|---|---|
-| `GET` | `/health/live` | liveness do processo |
-| `GET` | `/health/ready` | readiness de PostgreSQL e SQS |
-| `GET` | `/metrics` | métricas Prometheus |
-| `POST` | `/wallets` | abre uma wallet e, para saldo positivo, seu `OPENING` |
-| `GET` | `/wallets/:walletId` | consulta a wallet |
-| `GET` | `/wallets/:walletId/ledger` | pagina o ledger imutável |
-| `POST` | `/wallets/:walletId/reconciliation` | compara wallet e ledger no mesmo snapshot |
-| `POST` | `/wagering/transactions` | processa `BET`, `WIN`, `LOSS`, `REFUND` ou `ROLLBACK` |
-| `GET` | `/wagering/transactions/:transactionId` | consulta por id interno |
-| `GET` | `/providers/:providerId/wagering/transactions/:externalTransactionId` | consulta por id externo |
+| Método | Endpoint                                                              | Finalidade                                            |
+| ------ | --------------------------------------------------------------------- | ----------------------------------------------------- |
+| `GET`  | `/health/live`                                                        | liveness do processo                                  |
+| `GET`  | `/health/ready`                                                       | readiness de PostgreSQL e SQS                         |
+| `GET`  | `/metrics`                                                            | métricas Prometheus                                   |
+| `POST` | `/wallets`                                                            | abre uma wallet e, para saldo positivo, seu `OPENING` |
+| `GET`  | `/wallets/:walletId`                                                  | consulta a wallet                                     |
+| `GET`  | `/wallets/:walletId/ledger`                                           | pagina o ledger imutável                              |
+| `POST` | `/wallets/:walletId/reconciliation`                                   | compara wallet e ledger no mesmo snapshot             |
+| `POST` | `/wagering/transactions`                                              | processa `BET`, `WIN`, `LOSS`, `REFUND` ou `ROLLBACK` |
+| `GET`  | `/wagering/transactions/:transactionId`                               | consulta por id interno                               |
+| `GET`  | `/providers/:providerId/wagering/transactions/:externalTransactionId` | consulta por id externo                               |
 
 Comandos entram em `wager-transactions.fifo`, sua redrive policy usa
 `wager-transactions-dlq.fifo`, e eventos da outbox saem em `wager-events.fifo`. O
@@ -159,6 +160,10 @@ O overlay visual será criado em fase posterior. Nesta fase, `OTEL_ENABLED=true`
 o exporter OTLP assíncrono da aplicação e `/metrics` expõe as métricas em formato
 Prometheus. Nenhum Collector, Tempo, Loki, Alloy ou Grafana é provisionado; isso pertence
 à subfase 12B.
+
+A métrica `wagering.sqs.messages.dlq` é uma gauge obtida dos atributos da DLQ real. Ela
+é separada do contador `wagering.sqs.consumer.permanent_failures`, que representa a
+classificação feita pelo consumidor antes do redrive.
 
 ## Testes
 
@@ -201,15 +206,16 @@ Na Fase 12A, `/health/ready` verifica PostgreSQL e a fila de comandos SQS com de
 `/health/live` continua verificando somente o processo e `/metrics` é o endpoint local
 de métricas; a indisponibilidade do exporter OTLP não falha a operação financeira.
 
-Na Fase 13, `bun run test:concurrency` cria um banco PostgreSQL efêmero, três filas FIFO
-exclusivas e três processos NestJS contra as dependências reais já iniciadas pelo Compose.
-Ela executa as oito provas distribuídas obrigatórias — incluindo barreiras de corrida,
+Na Fase 13, cada uma das duas rodadas de `bun run test:concurrency` cria um banco
+PostgreSQL efêmero, três filas FIFO exclusivas e três processos NestJS contra as
+dependências reais já iniciadas pelo Compose. Cada rodada executa as oito provas
+distribuídas obrigatórias — incluindo barreiras de corrida,
 morte por `SIGKILL` depois do commit e antes do ack SQS, dois publishers, referência fora
 de ordem e restart — e remove os processos, banco e filas ao terminar. Execute-a com
 PostgreSQL e LocalStack saudáveis; ela não altera o banco de desenvolvimento nem as filas
 padrão.
 
-O registro da máquina, versões e duração observada da suíte distribuída está em
+O registro da máquina, versões e duração observada das duas rodadas está em
 [docs/DELIVERY.md](docs/DELIVERY.md). A suíte deve ser repetida com PostgreSQL e
 LocalStack saudáveis antes de apresentar o resultado; seus recursos efêmeros não devem
 ser confundidos com o banco ou as filas padrão.
@@ -253,10 +259,13 @@ aceita `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`; as duas reversões exigem
 
 O consumidor da Fase 8 inicia junto da aplicação quando `SQS_CONSUMER_ENABLED=true`. Ele
 consome `wager-transactions.fifo` com concorrência limitada, usa long polling e mantém
-visibilidade durante o processamento. O envelope de comando possui `messageId` próprio;
-esse id é a chave da inbox e não deve ser confundido com o `MessageId` de transporte do
-SQS. Uma mensagem válida é apagada somente depois do commit financeiro. Mensagens
-permanentemente inválidas não são apagadas e seguem a redrive policy para a DLQ.
+visibilidade durante o processamento. O envelope público usa
+`type: "WagerTransactionRequested"` conforme `docs/CHALLENGE.md` e possui `messageId`
+próprio; esse id é a chave da inbox e não deve ser confundido com o `MessageId` de
+transporte do SQS. Uma mensagem válida é apagada somente depois do commit financeiro.
+Mensagens permanentemente inválidas não são apagadas e seguem a redrive policy para a
+DLQ. O schema é estrito e aceita somente o contrato público; o `messageId` também é
+usado como correlation id dentro da aplicação.
 
 Para validar a integração real da Fase 8, com PostgreSQL e LocalStack saudáveis:
 

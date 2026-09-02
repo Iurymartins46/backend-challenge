@@ -5,6 +5,7 @@ import {
   Get,
   HttpStatus,
   InternalServerErrorException,
+  Logger,
   Param,
   Post,
   Req,
@@ -50,6 +51,8 @@ import {
 @ApiTags('wagering')
 @Controller()
 export class WageringController {
+  private readonly logger = new Logger(WageringController.name);
+
   constructor(
     private readonly processWagerTransactionUseCase: ProcessWagerTransactionUseCase,
     private readonly getWagerTransactionUseCase: GetWagerTransactionUseCase,
@@ -126,6 +129,17 @@ export class WageringController {
       referenceExternalTransactionId: body.referenceExternalTransactionId,
       correlationId,
     });
+
+    this.logger.log(
+      {
+        transactionId: result.transactionId,
+        walletId: body.walletId,
+        providerId: body.providerId,
+        status: result.status,
+        idempotentReplay: result.idempotentReplay,
+      },
+      'HTTP wager transaction completed.',
+    );
 
     if (result.status === WagerTransactionStatus.Rejected) {
       throwRejectedTransaction(result);

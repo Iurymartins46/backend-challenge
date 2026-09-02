@@ -1,6 +1,7 @@
 import {
   ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
+  GetQueueAttributesCommand,
   GetQueueUrlCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
@@ -9,6 +10,7 @@ import {
 
 import type {
   SqsPublishOptions,
+  SqsApproximateMessageCount,
   SqsQueuePort,
   SqsReceiveOptions,
   SqsTransportMessage,
@@ -101,6 +103,29 @@ export class AwsSqsQueueAdapter implements SqsQueuePort {
     );
   }
 
+  async getApproximateMessageCount(queueName: string): Promise<SqsApproximateMessageCount> {
+    const output = await withTelemetrySpan(
+      'sqs.get_queue_attributes',
+      { 'messaging.system': 'aws.sqs', 'messaging.destination.name': queueName },
+      async () =>
+        this.client.send(
+          new GetQueueAttributesCommand({
+            QueueUrl: await this.queueUrl(queueName),
+            AttributeNames: [
+              'ApproximateNumberOfMessages',
+              'ApproximateNumberOfMessagesNotVisible',
+              'ApproximateNumberOfMessagesDelayed',
+            ],
+          }),
+        ),
+    );
+    const visible = approximateCount(output.Attributes?.ApproximateNumberOfMessages);
+    const inFlight = approximateCount(output.Attributes?.ApproximateNumberOfMessagesNotVisible);
+    const delayed = approximateCount(output.Attributes?.ApproximateNumberOfMessagesDelayed);
+
+    return { visible, inFlight, delayed, total: visible + inFlight + delayed };
+  }
+
   private async queueUrl(queueName: string): Promise<string> {
     const cachedUrl = this.queueUrls.get(queueName);
     if (cachedUrl !== undefined) {
@@ -115,4 +140,9 @@ export class AwsSqsQueueAdapter implements SqsQueuePort {
     this.queueUrls.set(queueName, output.QueueUrl);
     return output.QueueUrl;
   }
+}
+
+function approximateCount(value: string | undefined): number {
+  const count = Number(value ?? 0);
+  return Number.isSafeInteger(count) && count >= 0 ? count : 0;
 }
