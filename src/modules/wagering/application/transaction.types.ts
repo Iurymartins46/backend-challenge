@@ -14,6 +14,8 @@ export type HttpWagerTransactionKind =
   | WagerTransactionKind.Refund
   | WagerTransactionKind.Rollback;
 
+export type WagerMetricSource = 'http' | 'sqs' | 'worker';
+
 export interface ProcessWagerTransactionInput {
   readonly providerId: string;
   readonly externalTransactionId: string;
@@ -27,6 +29,7 @@ export interface ProcessWagerTransactionInput {
   readonly referenceExternalTransactionId?: string;
   readonly correlationId?: string;
   readonly causationId?: string;
+  readonly source?: WagerMetricSource;
   readonly inbox?: WagerInboxContext;
   /** Internal worker signal: reject atomically if the reference is still absent. */
   readonly expirePendingReference?: boolean;

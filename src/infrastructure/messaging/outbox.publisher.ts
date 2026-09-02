@@ -12,6 +12,7 @@ import { RetryExhaustedError } from '../../modules/wagering/domain/errors';
 import type { RetryPolicy } from '../../modules/wagering/domain/retry-policy';
 import { OutboxPublisherMetrics } from './outbox-publisher.metrics';
 import type { SqsPublishOptions, SqsQueuePort } from './sqs-queue.port';
+import { withTelemetrySpan } from '../telemetry';
 
 export interface OutboxPublisherOptions {
   readonly enabled: boolean;
@@ -117,6 +118,18 @@ export class OutboxPublisher {
   }
 
   private async publishClaim(message: OutboxMessage): Promise<PublishOutcome> {
+    return withTelemetrySpan(
+      'outbox.publish',
+      {
+        'outbox.message.id': message.id,
+        'outbox.event.type': message.eventType,
+        'outbox.aggregate.id': message.aggregateId,
+      },
+      () => this.publishClaimInternal(message),
+    );
+  }
+
+  private async publishClaimInternal(message: OutboxMessage): Promise<PublishOutcome> {
     await this.options.beforePublish?.(message);
 
     let publishedToQueue = false;

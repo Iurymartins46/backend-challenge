@@ -30,13 +30,7 @@ import { activeCorrelationId, normalizeCorrelationId } from './correlation.middl
             };
           },
           redact: {
-            paths: [
-              'req.headers.authorization',
-              'req.headers.cookie',
-              'req.headers["x-api-key"]',
-              'req.body',
-              'res.headers["set-cookie"]',
-            ],
+            paths: ['req.headers', 'req.body', 'res.headers["set-cookie"]'],
             remove: true,
           },
         },

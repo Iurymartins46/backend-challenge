@@ -13,6 +13,7 @@ import type {
   SqsReceiveOptions,
   SqsTransportMessage,
 } from './sqs-queue.port';
+import { withTelemetrySpan } from '../telemetry';
 
 export class AwsSqsQueueAdapter implements SqsQueuePort {
   private readonly queueUrls = new Map<string, string>();
@@ -23,15 +24,20 @@ export class AwsSqsQueueAdapter implements SqsQueuePort {
     queueName: string,
     options: SqsReceiveOptions,
   ): Promise<readonly SqsTransportMessage[]> {
-    const output = await this.client.send(
-      new ReceiveMessageCommand({
-        QueueUrl: await this.queueUrl(queueName),
-        MaxNumberOfMessages: options.maxNumberOfMessages,
-        WaitTimeSeconds: options.waitTimeSeconds,
-        VisibilityTimeout: options.visibilityTimeoutSeconds,
-        MessageSystemAttributeNames: ['ApproximateReceiveCount'],
-      }),
-      options.signal === undefined ? undefined : { abortSignal: options.signal },
+    const output = await withTelemetrySpan(
+      'sqs.receive',
+      { 'messaging.system': 'aws.sqs', 'messaging.destination.name': queueName },
+      async () =>
+        this.client.send(
+          new ReceiveMessageCommand({
+            QueueUrl: await this.queueUrl(queueName),
+            MaxNumberOfMessages: options.maxNumberOfMessages,
+            WaitTimeSeconds: options.waitTimeSeconds,
+            VisibilityTimeout: options.visibilityTimeoutSeconds,
+            MessageSystemAttributeNames: ['ApproximateReceiveCount'],
+          }),
+          options.signal === undefined ? undefined : { abortSignal: options.signal },
+        ),
     );
 
     return (output.Messages ?? []).map((message) => ({
@@ -47,11 +53,16 @@ export class AwsSqsQueueAdapter implements SqsQueuePort {
   }
 
   async delete(queueName: string, receiptHandle: string): Promise<void> {
-    await this.client.send(
-      new DeleteMessageCommand({
-        QueueUrl: await this.queueUrl(queueName),
-        ReceiptHandle: receiptHandle,
-      }),
+    await withTelemetrySpan(
+      'sqs.delete',
+      { 'messaging.system': 'aws.sqs', 'messaging.destination.name': queueName },
+      async () =>
+        this.client.send(
+          new DeleteMessageCommand({
+            QueueUrl: await this.queueUrl(queueName),
+            ReceiptHandle: receiptHandle,
+          }),
+        ),
     );
   }
 
@@ -60,23 +71,33 @@ export class AwsSqsQueueAdapter implements SqsQueuePort {
     receiptHandle: string,
     visibilityTimeoutSeconds: number,
   ): Promise<void> {
-    await this.client.send(
-      new ChangeMessageVisibilityCommand({
-        QueueUrl: await this.queueUrl(queueName),
-        ReceiptHandle: receiptHandle,
-        VisibilityTimeout: visibilityTimeoutSeconds,
-      }),
+    await withTelemetrySpan(
+      'sqs.change_visibility',
+      { 'messaging.system': 'aws.sqs', 'messaging.destination.name': queueName },
+      async () =>
+        this.client.send(
+          new ChangeMessageVisibilityCommand({
+            QueueUrl: await this.queueUrl(queueName),
+            ReceiptHandle: receiptHandle,
+            VisibilityTimeout: visibilityTimeoutSeconds,
+          }),
+        ),
     );
   }
 
   async publish(queueName: string, options: SqsPublishOptions): Promise<void> {
-    await this.client.send(
-      new SendMessageCommand({
-        QueueUrl: await this.queueUrl(queueName),
-        MessageBody: options.messageBody,
-        MessageGroupId: options.messageGroupId,
-        MessageDeduplicationId: options.messageDeduplicationId,
-      }),
+    await withTelemetrySpan(
+      'sqs.publish',
+      { 'messaging.system': 'aws.sqs', 'messaging.destination.name': queueName },
+      async () =>
+        this.client.send(
+          new SendMessageCommand({
+            QueueUrl: await this.queueUrl(queueName),
+            MessageBody: options.messageBody,
+            MessageGroupId: options.messageGroupId,
+            MessageDeduplicationId: options.messageDeduplicationId,
+          }),
+        ),
     );
   }
 

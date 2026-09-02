@@ -63,6 +63,9 @@ export interface AppConfig {
     serviceVersion: string;
     exporterEndpoint: string;
   };
+  health: {
+    timeoutMs: number;
+  };
   swagger: {
     enabled: boolean;
   };
@@ -132,6 +135,9 @@ export function configuration(): AppConfig {
       serviceName: env.OTEL_SERVICE_NAME,
       serviceVersion: env.OTEL_SERVICE_VERSION,
       exporterEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    },
+    health: {
+      timeoutMs: env.HEALTHCHECK_TIMEOUT_MS,
     },
     swagger: {
       enabled: env.SWAGGER_ENABLED,

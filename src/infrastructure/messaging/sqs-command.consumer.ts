@@ -4,6 +4,7 @@ import { isTransientFinancialError } from '../../modules/wagering/application/pr
 import { WagerTransactionStatus } from '../../modules/wagering/domain/wager-transaction';
 import { DependencyUnavailableError, DomainError } from '../../modules/wagering/domain/errors';
 import { SqsConsumerMetrics } from './sqs-consumer.metrics';
+import { withTelemetrySpan } from '../telemetry';
 import type { SqsQueuePort, SqsTransportMessage } from './sqs-queue.port';
 import type { SqsCommandHandlingResult } from './sqs-command-handler';
 
@@ -100,6 +101,18 @@ export class SqsCommandConsumer {
 
   /** Processes one received message and deletes it only after the use case resolves. */
   async processMessage(message: SqsTransportMessage): Promise<void> {
+    return withTelemetrySpan(
+      'sqs.command.process',
+      {
+        'messaging.system': 'aws.sqs',
+        'messaging.destination.name': this.options.queueName,
+        'messaging.message.id': message.transportMessageId,
+      },
+      () => this.processMessageInternal(message),
+    );
+  }
+
+  private async processMessageInternal(message: SqsTransportMessage): Promise<void> {
     this.metrics.increment('messagesReceived');
     if (message.receiptHandle.trim().length === 0) {
       this.recordFailure('permanent', new Error('SQS message has no receipt handle.'));

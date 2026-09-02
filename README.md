@@ -4,7 +4,7 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–11 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–11 e a subfase obrigatória 12A implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
@@ -132,8 +132,9 @@ docker compose \
 ```
 
 O overlay visual será criado em fase posterior. Nesta fase, `OTEL_ENABLED=true` configura
-o exporter OTLP da aplicação, mas nenhum Collector, Prometheus, Tempo, Loki, Alloy ou
-Grafana é provisionado.
+o exporter OTLP assíncrono da aplicação e `/metrics` expõe as métricas em formato
+Prometheus. Nenhum Collector, Tempo, Loki, Alloy ou Grafana é provisionado; isso pertence
+à subfase 12B.
 
 ## Testes
 
@@ -159,6 +160,9 @@ fases posteriores.
 Na Fase 1, PostgreSQL 18.6 e LocalStack reais são usados para validar startup, health,
 Swagger e filas; os testes automatizados cobrem configuração, erros, auth no-op e o span
 HTTP básico.
+Na Fase 12A, `/health/ready` verifica PostgreSQL e a fila de comandos SQS com deadline,
+`/health/live` continua verificando somente o processo e `/metrics` é o endpoint local
+de métricas; a indisponibilidade do exporter OTLP não falha a operação financeira.
 
 O projeto usa NestJS 12 com Fastify e validação Standard Schema/Zod. TypeScript 6.0.2 é
 o maior release aceito por `typescript-eslint@8.69.0` (`<6.1.0`); TypeScript 7 será
@@ -235,8 +239,10 @@ RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/pending-reference-wor
 ```text
 GET /health/live
 GET /health/ready
+GET /metrics
 ```
 
-Liveness verifica somente o processo. O endpoint de readiness desta fase verifica o
-estado do processo; as verificações de PostgreSQL e SQS entram quando os adapters de
-saúde forem implementados. Readiness nunca dependerá da stack visual.
+Liveness verifica somente o processo. Readiness verifica PostgreSQL e a fila de comandos
+SQS com timeout configurável por `HEALTHCHECK_TIMEOUT_MS`, retorna `503` quando uma
+dependência está indisponível e nunca depende da stack visual. Durante o shutdown,
+readiness também retorna `503`.

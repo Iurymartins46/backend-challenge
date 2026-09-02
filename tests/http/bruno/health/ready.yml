@@ -4,6 +4,7 @@ info:
   seq: 2
   tags:
     - phase-1
+    - phase-12a
     - smoke
 
 http:
@@ -29,5 +30,5 @@ settings:
   maxRedirects: 5
 
 docs: |-
-  Confirma o readiness definido na Fase 1. Banco e SQS passam a integrar esta
-  verificação quando os adapters correspondentes forem implementados.
+  Confirma o readiness da Fase 12A. PostgreSQL e a fila de comandos SQS precisam
+  estar alcançáveis; a stack visual não participa desta verificação.
