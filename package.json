@@ -28,6 +28,7 @@
     "docker:build:classic": "COMPOSE_DOCKER_CLI_BUILD=0 DOCKER_BUILDKIT=0 docker compose --env-file .env -f docker/compose.yaml build api",
     "docker:up": "docker compose --env-file .env -f docker/compose.yaml up -d",
     "docker:up:build": "docker compose --env-file .env -f docker/compose.yaml up -d --build",
+    "docker:up:observability": "docker compose --env-file .env -f docker/compose.yaml -f docker/compose.observability.yaml up -d",
     "docker:up:infra": "docker compose --env-file .env -f docker/compose.yaml up -d postgres localstack localstack-init",
     "docker:down": "docker compose --env-file .env -f docker/compose.yaml down",
     "docker:ps": "docker compose --env-file .env -f docker/compose.yaml ps --all",

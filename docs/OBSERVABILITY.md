@@ -16,9 +16,10 @@ A base inicial contém:
 - desligamento ordenado do SDK.
 
 Na subfase 12A, o comportamento é provado com exporter in-memory, endpoint OTLP
-indisponível e `/metrics` em formato Prometheus servido pela própria API. A configuração
-do Collector/Tempo pertence à fase posterior, evitando misturar instrumentação da
-aplicação com provisionamento dos backends.
+indisponível e `/metrics` em formato Prometheus servido pela própria API. A subfase 12B
+adiciona o overlay local que recebe traces no Collector, persiste-os no Tempo e
+provisiona Prometheus, Loki, Alloy e Grafana sem tornar esses serviços dependências do
+caminho financeiro.
 
 As fases de domínio adicionam spans e métricas de negócio no momento em que cada fluxo
 é implementado. A fase dedicada à observabilidade completa métricas, redaction, health
@@ -60,12 +61,19 @@ API/workers ──JSON stdout──> Grafana Alloy ─────────�
 ## Docker
 
 - `docker/compose.yaml`: aplicação, PostgreSQL e LocalStack;
-- `docker/compose.observability.yaml`: overlay opcional;
+- `docker/compose.observability.yaml`: overlay opcional da subfase 12B;
 - `docker/observability/`: Collector, Prometheus, Tempo, Loki, Alloy e provisioning do
   Grafana.
 
-Readiness depende de PostgreSQL e SQS, nunca do collector ou dos backends visuais.
-Liveness verifica somente o processo.
+Readiness depende de PostgreSQL e SQS, nunca do Collector ou dos backends visuais.
+Liveness verifica somente o processo. O overlay publica somente o Grafana no host; os
+demais serviços usam `expose` e comunicação pela rede interna do Compose.
+
+O dashboard provisionado `Distributed Wagering - Processing and Outbox` acompanha taxa e
+latência de processamento, mensagens na DLQ, quantidade pendente da outbox e lag da
+outbox. Os arquivos de configuração e provisioning ficam sob
+`docker/observability/`; as imagens são pinadas por padrão no overlay e podem ser
+substituídas por variáveis locais para testes de atualização.
 
 O contador `wagering.sqs.consumer.permanent_failures` registra classificações locais do
 consumidor. Separadamente, um monitor consulta periodicamente os atributos

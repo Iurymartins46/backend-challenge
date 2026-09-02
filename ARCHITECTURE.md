@@ -184,8 +184,8 @@ primeiros imports. A Fase 1 cria resource, propagação, traces básicos, correl
 exporter OTLP configurável. As métricas e spans de negócio entram junto dos casos de
 uso. O consumidor SQS expõe contadores processuais de recebimento, processamento,
 duplicata, rejeição, redelivery transitória, DLQ, ack e heartbeat; eles são
-diagnósticos e não substituem o estado financeiro no PostgreSQL. A subfase 12A está
-implementada; a stack visual 12B ainda não foi adicionada.
+diagnósticos e não substituem o estado financeiro no PostgreSQL. As subfases 12A e 12B
+estão implementadas; a stack visual permanece opcional para o caminho financeiro.
 
 O publisher da outbox expõe contadores processuais de claims, publicações, falhas,
 retries, leases perdidos e os gauges de quantidade pendente e lag. IDs de eventos e
@@ -217,9 +217,11 @@ docker/
 ```
 
 `docker/compose.yaml` contém aplicação, PostgreSQL, LocalStack e inicialização das
-filas. `docker/compose.observability.yaml` é um overlay reservado para a subfase 12B.
-Ele ainda não declara Collector, Prometheus, Tempo, Loki, Alloy ou Grafana, portanto a
-entrega atual não afirma que a stack visual está disponível.
+filas. `docker/compose.observability.yaml` adiciona Collector, Prometheus, Tempo, Loki,
+Alloy e Grafana sem alterar o Compose base. Os backends ficam somente na rede interna;
+apenas a interface do Grafana é publicada para o host. O Collector recebe OTLP HTTP e
+exporta traces para o Tempo, Prometheus coleta `/metrics` da API e Alloy coleta stdout
+JSON pelo socket Docker e o envia ao Loki.
 
 ### 4.11 Reconciliação somente para leitura
 
@@ -333,8 +335,6 @@ classificação local de falhas permanentes.
 Os limites deliberados são:
 
 - `AUTH_MODE=none` é o único adapter disponível; OIDC pertence à Fase 15;
-- a subfase visual 12B não foi implementada; não há Grafana, Collector ou backends
-  visuais no Compose atual;
 - não há teste de carga da Fase 16;
 - o ledger é de uma entrada por wallet/transação; partidas dobradas continuam sendo
   diferencial opcional;

@@ -68,7 +68,9 @@ SQS commands ──> inbox ─────────────────�
 PENDING_REFERENCE ──> worker(s) ──> mesmo use case + mesmo lock da wallet
 
 HTTP/SQS/workers ──> logs JSON, métricas e traces não bloqueantes
-                         └──> /metrics; backends visuais 12B não incluídos
+                         ├──> /metrics ──> Prometheus ──> Grafana
+                         ├──> OTLP ──> Collector ──> Tempo ──> Grafana
+                         └──> stdout ──> Alloy ──> Loki ──> Grafana
 ```
 
 O PostgreSQL arbitra idempotência, locks, constraints e a atomicidade. SQS FIFO ordena
@@ -89,7 +91,7 @@ do commit.
 | Inbox, redelivery e DLQ                   | chave `(consumer_name, message_id)`, ack pós-commit e redrive policy                 | `tests/integration/sqs-inbox.spec.ts`; filas e `maxReceiveCount=5` em Compose/harness                                                       |
 | Transactional outbox                      | outbox na UoW, publisher com `SKIP LOCKED`/lease, retry                              | `tests/integration/outbox-publisher.spec.ts`; publisher concorrente e crash no harness                                                      |
 | Reconciliação somente leitura             | snapshot `REPEATABLE READ`, diferença assinada, métrica de divergência               | `tests/unit/wallet/reconcile-wallet.use-case.spec.ts` e `tests/integration/reconciliation.spec.ts`                                          |
-| Observabilidade operacional               | logs JSON, correlation ids, métricas de negócio, gauge real da DLQ e health separado | `tests/unit/logging.spec.ts`, `telemetry.spec.ts`, `health.spec.ts`, `sqs-inbox.spec.ts`, indisponibilidade real e `/metrics`               |
+| Observabilidade operacional               | logs JSON, correlation ids, métricas de negócio, gauge real da DLQ, health separado e overlay visual 12B | `tests/unit/logging.spec.ts`, `telemetry.spec.ts`, `health.spec.ts`, `sqs-inbox.spec.ts`, indisponibilidade real, `/metrics` e `docker/observability/` |
 | Contrato HTTP                             | DTOs/schema Zod, Swagger, envelope uniforme de erro                                  | `docs/API_AND_ERRORS.md`, coleção Bruno e `tests/http/curl/smoke.sh`                                                                        |
 | Schema como última defesa                 | FKs, uniques, checks e trigger append-only                                           | SQL direto em `financial-persistence.spec.ts` e no cenário de constraints distribuído                                                       |
 
@@ -107,9 +109,9 @@ do commit.
    `correlationId`s e os últimos logs por processo, sem expor valores financeiros.
 6. Mostrar `POST /wallets/:walletId/reconciliation` e explicar que divergência é
    sinalizada por resposta, log e métrica, sem autocorreção.
-7. Declarar explicitamente que Grafana/Tempo/Loki/Collector não fazem parte desta
-   entrega: a subfase 12B ficou pendente; o endpoint `/metrics` e os sinais da 12A são
-   os artefatos disponíveis.
+7. Abrir o Grafana em `http://localhost:3001`, mostrar o dashboard provisionado e
+   consultar um trace no Tempo e os logs correlatos no Loki. A stack visual é um overlay
+   opcional e não participa da readiness financeira.
 
 ## Registro de versões e execução
 
@@ -138,8 +140,6 @@ uma estimativa de desempenho.
 
 - OIDC e validação de JWT não foram iniciados; `AUTH_MODE=none` é um modo de
   desenvolvimento explícito e a Fase 15 continua posterior.
-- A subfase visual 12B não foi implementada. O overlay permanece vazio por desenho; não
-  há Grafana, Tempo, Loki, Alloy ou Collector para demonstrar.
 - O teste de carga da Fase 16 não foi executado.
 
 Esses são os únicos itens planejados ainda não implementados.
