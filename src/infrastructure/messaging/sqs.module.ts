@@ -3,8 +3,10 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import type { AppConfig } from '../../config/configuration';
+import { AwsSqsQueueAdapter } from './aws-sqs-queue.adapter';
 
 export const SQS_CLIENT = Symbol('SQS_CLIENT');
+export const SQS_QUEUE_PORT = Symbol('SQS_QUEUE_PORT');
 
 @Global()
 @Module({
@@ -23,7 +25,12 @@ export const SQS_CLIENT = Symbol('SQS_CLIENT');
           },
         }),
     },
+    {
+      provide: SQS_QUEUE_PORT,
+      inject: [SQS_CLIENT],
+      useFactory: (client: SQSClient) => new AwsSqsQueueAdapter(client),
+    },
   ],
-  exports: [SQS_CLIENT],
+  exports: [SQS_CLIENT, SQS_QUEUE_PORT],
 })
 export class SqsModule {}

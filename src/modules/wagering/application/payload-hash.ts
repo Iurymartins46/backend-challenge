@@ -15,7 +15,7 @@ export interface WagerBusinessPayload {
   readonly referenceExternalTransactionId?: string;
 }
 
-type JsonValue =
+export type JsonValue =
   null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
 /** RFC 8785 JSON Canonicalization Scheme for the values used by wager payloads. */

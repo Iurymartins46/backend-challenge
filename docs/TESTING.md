@@ -25,6 +25,11 @@ real para criação de wallet, BET, replay e as duas leituras de transação. Co
 o PostgreSQL do Compose saudável, execute
 `RUN_REAL_INTEGRATION_TESTS=true bun run test:integration`.
 
+`sqs-inbox.spec.ts` adiciona a prova da Fase 8 contra PostgreSQL e LocalStack reais:
+comando válido, inbox atômica, redelivery idempotente, divergência de message id e ack
+somente depois do commit. Execute-a isoladamente com
+`RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts`.
+
 ## Concorrência distribuída
 
 Um harness sobe pelo menos três processos independentes contra o mesmo banco e filas.

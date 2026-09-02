@@ -26,6 +26,13 @@ export interface AppConfig {
     commandQueueName: string;
     commandDlqName: string;
     eventsQueueName: string;
+    consumerEnabled: boolean;
+    consumerName: string;
+    consumerConcurrency: number;
+    waitTimeSeconds: number;
+    visibilityTimeoutSeconds: number;
+    visibilityHeartbeatSeconds: number;
+    shutdownTimeoutMs: number;
   };
   observability: {
     enabled: boolean;
@@ -66,6 +73,13 @@ export function configuration(): AppConfig {
       commandQueueName: env.SQS_COMMAND_QUEUE_NAME,
       commandDlqName: env.SQS_COMMAND_DLQ_NAME,
       eventsQueueName: env.SQS_EVENTS_QUEUE_NAME,
+      consumerEnabled: env.SQS_CONSUMER_ENABLED,
+      consumerName: env.SQS_CONSUMER_NAME,
+      consumerConcurrency: env.SQS_CONSUMER_CONCURRENCY,
+      waitTimeSeconds: env.SQS_WAIT_TIME_SECONDS,
+      visibilityTimeoutSeconds: env.SQS_VISIBILITY_TIMEOUT_SECONDS,
+      visibilityHeartbeatSeconds: env.SQS_VISIBILITY_HEARTBEAT_SECONDS,
+      shutdownTimeoutMs: env.SQS_SHUTDOWN_TIMEOUT_MS,
     },
     observability: {
       enabled: env.OTEL_ENABLED,

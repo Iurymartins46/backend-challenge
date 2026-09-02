@@ -3,9 +3,10 @@
 > Este documento contém somente as decisões arquiteturais que afetam correção,
 > consistência e evolução do sistema. Detalhes de implementação ficam em `docs/`.
 > O bootstrap da Fase 1, o domínio puro da Fase 3, a persistência da Fase 4, a
-> vertical HTTP de wallet/ledger e o processamento HTTP síncrono de BET/WIN/LOSS da
-> Fase 6 e de REFUND/ROLLBACK da Fase 7 já existem; SQS e o worker agendado de
-> referências permanecem nas fases seguintes.
+> vertical HTTP de wallet/ledger, o processamento HTTP síncrono de BET/WIN/LOSS da
+> Fase 6, de REFUND/ROLLBACK da Fase 7 e o consumidor SQS/inbox da Fase 8 já existem;
+> o worker agendado de referências e o publisher da outbox permanecem nas fases
+> seguintes.
 
 ## 1. Objetivo arquitetural
 
@@ -97,7 +98,22 @@ o saldo observado originalmente, mesmo que a wallet tenha mudado depois.
 ### 4.5 Inbox e transactional outbox
 
 Inbox, transação de aposta, wallet, ledger e outbox participam da mesma transação SQL.
-O consumidor apaga a mensagem SQS somente depois do commit.
+O consumidor SQS recebe um envelope `WagerTransactionCommand` versionado. O
+`messageId` do envelope é a identidade da mensagem de aplicação e é separado do
+`MessageId` de transporte retornado pelo SQS. O caso de uso calcula o hash financeiro
+normal para idempotência da aposta e a inbox calcula um hash do `data` completo,
+incluindo a chave de idempotência, para detectar reuso divergente do message id.
+
+A inserção da inbox usa a chave `(consumer_name, message_id)` e `ON CONFLICT DO NOTHING`,
+permitindo que duas entregas concorrentes arbitrem a mesma mensagem no PostgreSQL. A
+mensagem é marcada como processada na mesma transação que o caso de uso financeiro;
+`DeleteMessage` só ocorre depois do commit. Falhas transitórias deixam a mensagem
+invisível até a redelivery, enquanto envelopes permanentes permanecem sem ack para a
+redrive policy encaminhá-los à DLQ.
+
+O consumidor usa long polling, limite de concorrência, heartbeat de visibility timeout
+e shutdown com drenagem limitada; mensagens ainda em processamento têm a visibilidade
+devolvida ao expirar o timeout de shutdown.
 
 Publishers da outbox usam claim com lease e `FOR UPDATE SKIP LOCKED`. Publicação é
 at-least-once: morte após publicar e antes de marcar pode duplicar o evento; `eventId`
@@ -151,7 +167,10 @@ senhas.
 OpenTelemetry é inicializado antes do NestJS para que auto-instrumentação não perca os
 primeiros imports. A Fase 1 cria resource, propagação, traces básicos, correlation id e
 exporter OTLP configurável. As métricas e spans de negócio entram junto dos casos de
-uso; a stack visual é adicionada depois.
+uso. O consumidor SQS expõe contadores processuais de recebimento, processamento,
+duplicata, rejeição, redelivery transitória, DLQ, ack e heartbeat; eles são
+diagnósticos e não substituem o estado financeiro no PostgreSQL. A stack visual é
+adicionada depois.
 
 Logs JSON continuam sendo o contrato primário porque o sinal de logs do SDK JavaScript
 do OpenTelemetry ainda tem maturidade inferior a traces e métricas. Telemetria nunca

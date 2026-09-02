@@ -18,7 +18,7 @@
     "format:check": "prettier --check 'src/**/*.ts' 'tests/**/*.ts' 'tests/http/**/*.yml' 'scripts/**/*.ts' '*.json' '*.mjs' 'docker/**/*.yaml'",
     "test": "bun test",
     "test:unit": "bun test tests/unit",
-    "test:integration": "bun test tests/integration",
+    "test:integration": "bun test tests/integration --max-concurrency=1",
     "test:concurrency": "bun test tests/concurrency",
     "lockfile:check": "bun install --frozen-lockfile --lockfile-only",
     "check": "bun run lockfile:check && bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run smoke:packages",

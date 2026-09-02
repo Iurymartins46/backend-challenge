@@ -22,6 +22,17 @@ export class TypeOrmInboxMessageRepository implements InboxMessageRepositoryPort
     return message;
   }
 
+  async insertIfAbsent(message: InboxMessage): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .insert()
+      .values(InboxMessageMapper.toPersistence(message))
+      .orIgnore()
+      .execute();
+
+    return result.identifiers.length > 0;
+  }
+
   async save(message: InboxMessage): Promise<InboxMessage> {
     const entity = await this.repository.save(InboxMessageMapper.toPersistence(message));
     return InboxMessageMapper.toDomain(entity);

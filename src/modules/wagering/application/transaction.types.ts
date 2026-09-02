@@ -27,6 +27,16 @@ export interface ProcessWagerTransactionInput {
   readonly referenceExternalTransactionId?: string;
   readonly correlationId?: string;
   readonly causationId?: string;
+  readonly inbox?: WagerInboxContext;
+}
+
+export interface WagerInboxContext {
+  readonly consumerName: string;
+  /** Application message id from the envelope, never the SQS transport MessageId. */
+  readonly messageId: string;
+  /** Hash of the accepted command data, including the idempotency key. */
+  readonly payloadHash?: string;
+  readonly receivedAt: Date;
 }
 
 export interface WagerTransactionSubmissionView {

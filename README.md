@@ -4,13 +4,14 @@ Serviço financeiro distribuído para processar apostas recebidas por HTTP e AWS
 com idempotência persistente, concorrência por wallet, ledger imutável e transactional
 outbox.
 
-> **Estado atual:** Fases 1–7 implementadas. A aplicação NestJS, configuração,
+> **Estado atual:** Fases 1–8 implementadas. A aplicação NestJS, configuração,
 > telemetria, health, Swagger, PostgreSQL/SQS e Compose estão preparados; o domínio
 > puro, a persistência TypeORM e a vertical HTTP de wallet/ledger estão implementados;
 > processamento HTTP síncrono de BET/WIN/LOSS/REFUND/ROLLBACK, idempotência, lock por
 > wallet, referências persistidas fora de ordem e consultas de transação estão
-> implementados; processamento SQS e o worker agendado de referências entram nas fases
-> seguintes. O
+> implementados; o consumidor SQS com inbox persistente, redelivery e ack pós-commit
+> também está implementado; o publisher da outbox e o worker agendado de referências
+> entram nas fases seguintes. O
 > enunciado original foi preservado em [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Documentação
@@ -178,6 +179,19 @@ As rotas síncronas de apostas das Fases 6–7 exigem o header `Idempotency-Key`
 `GET /providers/:providerId/wagering/transactions/:externalTransactionId`. O POST
 aceita `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`; as duas reversões exigem
 `referenceExternalTransactionId`.
+
+O consumidor da Fase 8 inicia junto da aplicação quando `SQS_CONSUMER_ENABLED=true`. Ele
+consome `wager-transactions.fifo` com concorrência limitada, usa long polling e mantém
+visibilidade durante o processamento. O envelope de comando possui `messageId` próprio;
+esse id é a chave da inbox e não deve ser confundido com o `MessageId` de transporte do
+SQS. Uma mensagem válida é apagada somente depois do commit financeiro. Mensagens
+permanentemente inválidas não são apagadas e seguem a redrive policy para a DLQ.
+
+Para validar a integração real da Fase 8, com PostgreSQL e LocalStack saudáveis:
+
+```bash
+RUN_REAL_INTEGRATION_TESTS=true bun test tests/integration/sqs-inbox.spec.ts
+```
 
 ## Health checks
 

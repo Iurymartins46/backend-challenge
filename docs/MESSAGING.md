@@ -13,6 +13,7 @@ Deduplication id do broker é otimização; PostgreSQL continua sendo a garantia
 
 - long polling e concorrência limitada pelo pool do banco;
 - inbox por `(consumerName, messageId)`;
+- envelope de comando versionado com `messageId` de aplicação separado do SQS `MessageId`;
 - mesmo caso de uso da API HTTP;
 - visibility heartbeat durante processamento;
 - `DeleteMessage` somente após commit;
@@ -20,6 +21,34 @@ Deduplication id do broker é otimização; PostgreSQL continua sendo a garantia
 - erro transitório: rollback e redelivery;
 - envelope permanentemente inválido: DLQ;
 - em SIGTERM: parar polling, drenar e devolver visibility do que não concluir.
+
+O envelope aceito pela Fase 8 tem esta forma:
+
+```json
+{
+  "messageId": "0192f2a0-345e-7e38-af88-e43f851a819d",
+  "messageType": "WagerTransactionCommand",
+  "version": 1,
+  "correlationId": "provider-correlation-123",
+  "causationId": "provider-request-123",
+  "occurredAt": "2026-09-01T12:00:00.000Z",
+  "data": {
+    "providerId": "provider-a",
+    "externalTransactionId": "transaction-123",
+    "idempotencyKey": "provider-a:transaction-123",
+    "playerId": "0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1",
+    "walletId": "0192f291-27dd-7d3f-8071-5f8685deef37",
+    "roundId": "round-987",
+    "gameId": "fortune-chimp",
+    "kind": "BET",
+    "money": { "amount": "25.00", "currency": "BRL" }
+  }
+}
+```
+
+O hash da inbox cobre o `data` completo, inclusive `idempotencyKey`, e não metadados de
+transporte. Assim, uma redelivery idêntica é replay seguro, enquanto reusar o mesmo
+message id com outro comando fica sem ack e segue para a DLQ após o limite de receives.
 
 ## Outbox
 
