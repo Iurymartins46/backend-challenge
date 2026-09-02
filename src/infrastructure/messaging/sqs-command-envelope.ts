@@ -8,32 +8,30 @@ import type {
 } from '../../modules/wagering/application/transaction.types';
 import { canonicalizeJson, type JsonValue } from '../../modules/wagering/application/payload-hash';
 
-export const WAGER_TRANSACTION_COMMAND_TYPE = 'WagerTransactionCommand';
-export const WAGER_TRANSACTION_COMMAND_VERSION = 1 as const;
+export const WAGER_TRANSACTION_REQUESTED_TYPE = 'WagerTransactionRequested';
 
-const wagerTransactionCommandDataSchema = createWagerTransactionSchema.extend({
+const wagerTransactionRequestedDataSchema = createWagerTransactionSchema.extend({
   idempotencyKey: z.string().min(1).max(255),
 });
 
-export const wagerTransactionCommandEnvelopeSchema = z.strictObject({
+export const wagerTransactionRequestedEnvelopeSchema = z.strictObject({
   messageId: z.string().min(1).max(255),
-  messageType: z.literal(WAGER_TRANSACTION_COMMAND_TYPE),
-  version: z.literal(WAGER_TRANSACTION_COMMAND_VERSION),
-  correlationId: z.string().min(1).max(255),
-  causationId: z.string().min(1).max(255).optional(),
+  type: z.literal(WAGER_TRANSACTION_REQUESTED_TYPE),
   occurredAt: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
     message: 'occurredAt must be an ISO-8601 date.',
   }),
-  data: wagerTransactionCommandDataSchema,
+  data: wagerTransactionRequestedDataSchema,
 });
 
-export type WagerTransactionCommandEnvelope = z.infer<typeof wagerTransactionCommandEnvelopeSchema>;
+export type WagerTransactionRequestedEnvelope = z.infer<
+  typeof wagerTransactionRequestedEnvelopeSchema
+>;
 
-export interface SqsWagerCommandEnvelope extends WagerTransactionCommandEnvelope {
+export interface SqsWagerCommandEnvelope extends WagerTransactionRequestedEnvelope {
   readonly receivedAt: Date;
 }
 
-export function parseWagerTransactionCommandEnvelope(
+export function parseWagerTransactionRequestedEnvelope(
   body: string,
   receivedAt: Date = new Date(),
 ): SqsWagerCommandEnvelope {
@@ -44,7 +42,7 @@ export function parseWagerTransactionCommandEnvelope(
     throw new InvalidSqsCommandEnvelopeError('The SQS message body must be valid JSON.');
   }
 
-  const parsed = wagerTransactionCommandEnvelopeSchema.safeParse(parsedBody);
+  const parsed = wagerTransactionRequestedEnvelopeSchema.safeParse(parsedBody);
   if (!parsed.success) {
     throw new InvalidSqsCommandEnvelopeError('The SQS message envelope is invalid.');
   }
@@ -72,14 +70,13 @@ export function toProcessWagerTransactionInput(
 
   return {
     ...envelope.data,
-    correlationId: envelope.correlationId,
-    ...(envelope.causationId === undefined ? {} : { causationId: envelope.causationId }),
+    correlationId: envelope.messageId,
     inbox,
   };
 }
 
 /** The inbox fingerprints the complete command data, including its idempotency key. */
-export function hashWagerCommandData(envelope: WagerTransactionCommandEnvelope): string {
+export function hashWagerCommandData(envelope: WagerTransactionRequestedEnvelope): string {
   const data = envelope.data as unknown as JsonValue;
   return createHash('sha256').update(canonicalizeJson(data), 'utf8').digest('hex');
 }

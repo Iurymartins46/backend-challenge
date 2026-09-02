@@ -101,8 +101,9 @@ o saldo observado originalmente, mesmo que a wallet tenha mudado depois.
 ### 4.5 Inbox e transactional outbox
 
 Inbox, transação de aposta, wallet, ledger e outbox participam da mesma transação SQL.
-O consumidor SQS recebe um envelope `WagerTransactionCommand` versionado. O
-`messageId` do envelope é a identidade da mensagem de aplicação e é separado do
+O consumidor SQS recebe exclusivamente o envelope estrito
+`type: "WagerTransactionRequested"` definido no desafio. O `messageId` do envelope é a
+identidade da mensagem de aplicação, também atua como correlation id, e é separado do
 `MessageId` de transporte retornado pelo SQS. O caso de uso calcula o hash financeiro
 normal para idempotência da aposta e a inbox calcula um hash do `data` completo,
 incluindo a chave de idempotência, para detectar reuso divergente do message id.
@@ -287,9 +288,9 @@ rotas e o smoke cURL estão em [docs/DELIVERY.md](docs/DELIVERY.md).
 ## 8. Testes como evidência arquitetural
 
 Testes unitários usam `bun:test`; integração e concorrência usam PostgreSQL e LocalStack
-reais. `bun run test:concurrency` provisiona um banco e três filas FIFO efêmeros, sobe no
-mínimo três processos NestJS e inclui redelivery, `SIGKILL` pós-commit/pré-ack, publishers
-concorrentes, referência fora de ordem e restart. O hook de crash só existe em
+reais. Cada uma das duas rodadas de `bun run test:concurrency` provisiona um banco e três
+filas FIFO efêmeros, sobe no mínimo três processos NestJS e inclui redelivery, `SIGKILL`
+pós-commit/pré-ack, publishers concorrentes, referência fora de ordem e restart. O hook de crash só existe em
 `NODE_ENV=test` e fica entre o retorno do Unit of Work e o `DeleteMessage`.
 
 O invariante final de todo cenário é wallet igual ao saldo reconstruído pelo ledger.
@@ -299,14 +300,14 @@ a entrega estão em [docs/DELIVERY.md](docs/DELIVERY.md).
 
 ## 9. Trade-offs assumidos
 
-| Decisão | Benefício | Custo |
-|---|---|---|
-| TypeORM | menor risco e maior velocidade | não usa o ORM preferencial do enunciado |
-| `bigint` em centavos | exatidão e aritmética simples | escala fixa e serialização explícita |
-| lock pessimista | correção simples da hot wallet | espera sob contenção |
-| outbox at-least-once | não perde evento confirmado | publicação duplicada é possível |
-| autenticação adiada | protege o caminho crítico | demo HTTP inicia sem proteção real |
-| observabilidade em overlay | núcleo local menor | dashboard não sobe por padrão |
+| Decisão                    | Benefício                      | Custo                                   |
+| -------------------------- | ------------------------------ | --------------------------------------- |
+| TypeORM                    | menor risco e maior velocidade | não usa o ORM preferencial do enunciado |
+| `bigint` em centavos       | exatidão e aritmética simples  | escala fixa e serialização explícita    |
+| lock pessimista            | correção simples da hot wallet | espera sob contenção                    |
+| outbox at-least-once       | não perde evento confirmado    | publicação duplicada é possível         |
+| autenticação adiada        | protege o caminho crítico      | demo HTTP inicia sem proteção real      |
+| observabilidade em overlay | núcleo local menor             | dashboard não sobe por padrão           |
 
 ## 10. Documentos relacionados
 
@@ -326,6 +327,8 @@ As Fases 1–14 e a subfase obrigatória 12A estão implementadas. A aplicação
 entrada HTTP e SQS, inbox persistente, transactional outbox, worker de referências,
 reconciliação em `REPEATABLE READ`, métricas, health checks e a suíte distribuída da
 Fase 13. A documentação de entrega relaciona cada garantia a seu teste ou constraint.
+A profundidade da DLQ é lida dos atributos reais do SQS e permanece separada da
+classificação local de falhas permanentes.
 
 Os limites deliberados são:
 

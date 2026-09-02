@@ -36,7 +36,7 @@ cardinalidade pertencem a logs/traces, não a labels de métrica.
 
 - transações por kind/status/source;
 - duplicatas;
-- retries e DLQ;
+- retries, falhas permanentes e quantidade real de mensagens na DLQ;
 - lock conflicts;
 - latência;
 - outbox pending/lag;
@@ -66,6 +66,13 @@ API/workers ──JSON stdout──> Grafana Alloy ─────────�
 
 Readiness depende de PostgreSQL e SQS, nunca do collector ou dos backends visuais.
 Liveness verifica somente o processo.
+
+O contador `wagering.sqs.consumer.permanent_failures` registra classificações locais do
+consumidor. Separadamente, um monitor consulta periodicamente os atributos
+`ApproximateNumberOfMessages`, `ApproximateNumberOfMessagesNotVisible` e
+`ApproximateNumberOfMessagesDelayed` da DLQ. A soma é exposta pela gauge
+`wagering.sqs.messages.dlq`; falhas nessa leitura preservam o último valor válido e são
+contadas sem afetar o processamento financeiro.
 
 `GET /metrics` é público e expõe somente métricas com labels de baixa cardinalidade
 (`kind`, `status` e `source`, quando aplicável). IDs de transação, wallet, provider,

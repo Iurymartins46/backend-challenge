@@ -13,7 +13,7 @@ Deduplication id do broker é otimização; PostgreSQL continua sendo a garantia
 
 - long polling e concorrência limitada pelo pool do banco;
 - inbox por `(consumerName, messageId)`;
-- envelope de comando versionado com `messageId` de aplicação separado do SQS `MessageId`;
+- envelope de comando estrito com `messageId` de aplicação separado do SQS `MessageId`;
 - mesmo caso de uso da API HTTP;
 - visibility heartbeat durante processamento;
 - `DeleteMessage` somente após commit;
@@ -22,15 +22,13 @@ Deduplication id do broker é otimização; PostgreSQL continua sendo a garantia
 - envelope permanentemente inválido: DLQ;
 - em SIGTERM: parar polling, drenar e devolver visibility do que não concluir.
 
-O envelope aceito pela Fase 8 tem esta forma:
+O contrato público aceito pela Fase 8 segue exatamente o envelope publicado no
+`docs/CHALLENGE.md`:
 
 ```json
 {
   "messageId": "0192f2a0-345e-7e38-af88-e43f851a819d",
-  "messageType": "WagerTransactionCommand",
-  "version": 1,
-  "correlationId": "provider-correlation-123",
-  "causationId": "provider-request-123",
+  "type": "WagerTransactionRequested",
   "occurredAt": "2026-09-01T12:00:00.000Z",
   "data": {
     "providerId": "provider-a",
@@ -45,6 +43,10 @@ O envelope aceito pela Fase 8 tem esta forma:
   }
 }
 ```
+
+O `messageId` da aplicação também é usado como `correlationId`. O schema é estrito:
+campos de envelopes alternativos ou tipos diferentes de `WagerTransactionRequested`
+são rejeitados e seguem a política de redrive.
 
 O hash da inbox cobre o `data` completo, inclusive `idempotencyKey`, e não metadados de
 transporte. Assim, uma redelivery idêntica é replay seguro, enquanto reusar o mesmo

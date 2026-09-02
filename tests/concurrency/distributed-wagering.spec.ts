@@ -131,11 +131,7 @@ distributed('Phase 13 distributed wagering suite', () => {
       money: '10.00',
     });
 
-    const messageId = await active.sendCommand(
-      input,
-      `phase13-crash-key-${randomUUID()}`,
-      correlationId,
-    );
+    const messageId = await active.sendCommand(input, `phase13-crash-key-${randomUUID()}`);
     await active.waitForProcessExit(crashInstance, correlationId);
     await active.restoreThreeInstances();
     await active.waitForTransaction(
@@ -198,14 +194,14 @@ distributed('Phase 13 distributed wagering suite', () => {
       roundId: 'phase13-reference-round',
     });
 
-    await active.sendCommand(refund, `phase13-refund-key-${randomUUID()}`, correlationId);
+    await active.sendCommand(refund, `phase13-refund-key-${randomUUID()}`);
     await active.waitForTransaction(
       refund.providerId,
       refund.externalTransactionId,
       'PENDING_REFERENCE',
       correlationId,
     );
-    await active.sendCommand(bet, `phase13-bet-key-${randomUUID()}`, correlationId);
+    await active.sendCommand(bet, `phase13-bet-key-${randomUUID()}`);
     await active.waitForTransaction(
       bet.providerId,
       bet.externalTransactionId,

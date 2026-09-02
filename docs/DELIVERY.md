@@ -35,9 +35,9 @@ bun run test:concurrency
 ```
 
 `test:integration` cria bancos temporários para seus cenários e
-`test:concurrency` cria banco, filas e três processos próprios. Ambos exigem PostgreSQL
-e LocalStack saudáveis, mas não devem usar o banco de desenvolvimento como fixture de
-resultado.
+`test:concurrency` executa duas rodadas completas. Cada rodada cria banco, filas e três
+processos próprios. Ambos exigem PostgreSQL e LocalStack saudáveis, mas não devem usar o
+banco de desenvolvimento como fixture de resultado.
 
 ## Diagrama final
 
@@ -77,21 +77,21 @@ do commit.
 
 ## Matriz requisito → implementação → evidência
 
-| Requisito                                 | Implementação principal                                                | Evidência verificável                                                                                                                       |
-| ----------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dinheiro exato e sem IEEE-754             | `src/modules/wagering/domain/money.ts`, `BIGINT` no TypeORM            | `tests/unit/money/money.spec.ts`; round-trip e limite em `tests/integration/financial-persistence.spec.ts`                                  |
-| Wallet não negativa e ledger consistente  | lock `FOR UPDATE`, `Wallet`, ledger append-only e checks SQL           | `tests/integration/financial-persistence.spec.ts`; auditoria wallet = ledger no harness distribuído                                         |
-| Abertura atômica                          | `CreateWalletUseCase` + UoW com `OPENING`/ledger/outbox                | `tests/unit/wallet/wallet.use-cases.spec.ts`; integração de rollback e abertura                                                             |
-| BET/WIN/LOSS/REFUND/ROLLBACK              | `ProcessWagerTransactionUseCase` e regras puras                        | `tests/unit/domain/wagering-domain.spec.ts` e `tests/unit/wagering/process-wager-transaction.use-case.spec.ts`; integração HTTP/referências |
-| Concorrência por wallet e três instâncias | lock pessimista por `walletId`; nenhum lock global                     | oito cenários em `tests/concurrency/distributed-wagering.spec.ts`, com duas BETs de 80, 50 duplicatas e wallets paralelas                   |
-| Idempotência persistente                  | índice único, hash SHA-256 canônico e snapshot de resultado            | `tests/integration/financial-persistence.spec.ts`, `http-wagering-api.spec.ts` e replay após restart no harness                             |
-| Referência fora de ordem                  | `PENDING_REFERENCE`, claim/lease, backoff e TTL                        | `tests/integration/pending-reference-worker.spec.ts`, `phase7-references.spec.ts` e cenário distribuído de REFUND                           |
-| Inbox, redelivery e DLQ                   | chave `(consumer_name, message_id)`, ack pós-commit e redrive policy   | `tests/integration/sqs-inbox.spec.ts`; filas e `maxReceiveCount=5` em Compose/harness                                                       |
-| Transactional outbox                      | outbox na UoW, publisher com `SKIP LOCKED`/lease, retry                | `tests/integration/outbox-publisher.spec.ts`; publisher concorrente e crash no harness                                                      |
-| Reconciliação somente leitura             | snapshot `REPEATABLE READ`, diferença assinada, métrica de divergência | `tests/unit/wallet/reconcile-wallet.use-case.spec.ts` e `tests/integration/reconciliation.spec.ts`                                          |
-| Observabilidade operacional               | logs JSON, correlation ids, métricas de negócio, health separado       | `tests/unit/telemetry.spec.ts`, `health.spec.ts`, `exception-filter.spec.ts` e endpoint `/metrics`                                          |
-| Contrato HTTP                             | DTOs/schema Zod, Swagger, envelope uniforme de erro                    | `docs/API_AND_ERRORS.md`, coleção Bruno e `tests/http/curl/smoke.sh`                                                                        |
-| Schema como última defesa                 | FKs, uniques, checks e trigger append-only                             | SQL direto em `financial-persistence.spec.ts` e no cenário de constraints distribuído                                                       |
+| Requisito                                 | Implementação principal                                                              | Evidência verificável                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dinheiro exato e sem IEEE-754             | `src/modules/wagering/domain/money.ts`, `BIGINT` no TypeORM                          | `tests/unit/money/money.spec.ts`; round-trip e limite em `tests/integration/financial-persistence.spec.ts`                                  |
+| Wallet não negativa e ledger consistente  | lock `FOR UPDATE`, `Wallet`, ledger append-only e checks SQL                         | `tests/integration/financial-persistence.spec.ts`; auditoria wallet = ledger no harness distribuído                                         |
+| Abertura atômica                          | `CreateWalletUseCase` + UoW com `OPENING`/ledger/outbox                              | `tests/unit/wallet/wallet.use-cases.spec.ts`; integração de rollback e abertura                                                             |
+| BET/WIN/LOSS/REFUND/ROLLBACK              | `ProcessWagerTransactionUseCase` e regras puras                                      | `tests/unit/domain/wagering-domain.spec.ts` e `tests/unit/wagering/process-wager-transaction.use-case.spec.ts`; integração HTTP/referências |
+| Concorrência por wallet e três instâncias | lock pessimista por `walletId`; nenhum lock global                                   | oito cenários em `tests/concurrency/distributed-wagering.spec.ts`, com duas BETs de 80, 50 duplicatas e wallets paralelas                   |
+| Idempotência persistente                  | índice único, hash SHA-256 canônico e snapshot de resultado                          | `tests/integration/financial-persistence.spec.ts`, `http-wagering-api.spec.ts` e replay após restart no harness                             |
+| Referência fora de ordem                  | `PENDING_REFERENCE`, claim/lease, backoff e TTL                                      | `tests/integration/pending-reference-worker.spec.ts`, `phase7-references.spec.ts` e cenário distribuído de REFUND                           |
+| Inbox, redelivery e DLQ                   | chave `(consumer_name, message_id)`, ack pós-commit e redrive policy                 | `tests/integration/sqs-inbox.spec.ts`; filas e `maxReceiveCount=5` em Compose/harness                                                       |
+| Transactional outbox                      | outbox na UoW, publisher com `SKIP LOCKED`/lease, retry                              | `tests/integration/outbox-publisher.spec.ts`; publisher concorrente e crash no harness                                                      |
+| Reconciliação somente leitura             | snapshot `REPEATABLE READ`, diferença assinada, métrica de divergência               | `tests/unit/wallet/reconcile-wallet.use-case.spec.ts` e `tests/integration/reconciliation.spec.ts`                                          |
+| Observabilidade operacional               | logs JSON, correlation ids, métricas de negócio, gauge real da DLQ e health separado | `tests/unit/logging.spec.ts`, `telemetry.spec.ts`, `health.spec.ts`, `sqs-inbox.spec.ts`, indisponibilidade real e `/metrics`               |
+| Contrato HTTP                             | DTOs/schema Zod, Swagger, envelope uniforme de erro                                  | `docs/API_AND_ERRORS.md`, coleção Bruno e `tests/http/curl/smoke.sh`                                                                        |
+| Schema como última defesa                 | FKs, uniques, checks e trigger append-only                                           | SQL direto em `financial-persistence.spec.ts` e no cenário de constraints distribuído                                                       |
 
 ## Roteiro de demonstração
 
@@ -123,23 +123,29 @@ O registro abaixo deve refletir a última execução real da suíte e não uma e
 | Mensageria               | LocalStack Community 4.14.0, SQS                                          |
 | Container tooling        | Docker 29.7.2; Docker Compose v5.5.0                                      |
 | Máquina                  | Linux 7.0.0-30-generic, x86_64, 22 CPUs, 14 GiB RAM                       |
-| Suíte unitária           | 63 testes, 790 ms                                                         |
-| Suíte de integração real | 34 testes, 4.22 s, PostgreSQL/LocalStack reais                            |
-| Suíte distribuída real   | 8 testes, 21 assertions, 20.778 s                                         |
+| Suíte unitária           | 76 testes, 288 assertions, 554 ms                                         |
+| Suíte de integração real | 34 testes, 174 assertions, 2,27 s, PostgreSQL/LocalStack e DLQ real       |
+| Suíte distribuída real   | 2 rodadas; 16 execuções, 42 assertions, 47,91 s                           |
 | Smoke HTTP real          | `bun run smoke:http` passou contra API containerizada em `localhost:3000` |
+| Health com falha real    | LocalStack e PostgreSQL: liveness 200 e readiness 503                     |
 
 O caminho padrão `bun run docker:up:build` encontrou o Buildx ausente no host; o caminho
 documentado `bun run docker:build:classic` construiu a imagem e `bun run docker:up`
 subiu a API com healthcheck saudável. A duração acima é a observada nesta execução, não
 uma estimativa de desempenho.
 
-## Limitações e pendências
+## Escopo posterior
 
 - OIDC e validação de JWT não foram iniciados; `AUTH_MODE=none` é um modo de
   desenvolvimento explícito e a Fase 15 continua posterior.
 - A subfase visual 12B não foi implementada. O overlay permanece vazio por desenho; não
   há Grafana, Tempo, Loki, Alloy ou Collector para demonstrar.
 - O teste de carga da Fase 16 não foi executado.
+
+Esses são os únicos itens planejados ainda não implementados.
+
+## Notas não bloqueantes
+
 - O ledger mantém uma entrada por wallet/transação; double-entry é diferencial opcional.
 - O scan versionado em `scripts/security-scan.sh` é heurístico e sem dependência de rede;
   ele cobre formatos comuns e não substitui uma política corporativa de secret scanning.

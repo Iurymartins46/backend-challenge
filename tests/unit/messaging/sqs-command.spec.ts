@@ -2,15 +2,18 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   hashWagerCommandData,
-  parseWagerTransactionCommandEnvelope,
+  parseWagerTransactionRequestedEnvelope,
   toProcessWagerTransactionInput,
+  WAGER_TRANSACTION_REQUESTED_TYPE,
 } from '../../../src/infrastructure/messaging/sqs-command-envelope';
 import {
   SqsCommandConsumer,
+  sqsCommandCompletedLogContext,
   type SqsCommandConsumerOptions,
   type SqsCommandHandlerPort,
 } from '../../../src/infrastructure/messaging/sqs-command.consumer';
 import { SqsConsumerMetrics } from '../../../src/infrastructure/messaging/sqs-consumer.metrics';
+import { SqsDlqMetricsMonitor } from '../../../src/infrastructure/messaging/sqs-dlq-metrics.monitor';
 import type { SqsCommandHandlingResult } from '../../../src/infrastructure/messaging/sqs-command-handler';
 import type {
   SqsQueuePort,
@@ -26,9 +29,7 @@ const receivedAt = new Date('2026-09-01T12:00:00.000Z');
 function commandEnvelope(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     messageId: 'application-message-1',
-    messageType: 'WagerTransactionCommand',
-    version: 1,
-    correlationId: 'correlation-1',
+    type: WAGER_TRANSACTION_REQUESTED_TYPE,
     occurredAt: receivedAt.toISOString(),
     data: {
       providerId: 'provider-a',
@@ -54,8 +55,23 @@ function transportMessage(body: string): SqsTransportMessage {
 }
 
 describe('SQS command envelope', () => {
+  test('accepts the public envelope published by the challenge', () => {
+    const envelope = parseWagerTransactionRequestedEnvelope(
+      JSON.stringify(commandEnvelope({ messageId: 'challenge-message-1' })),
+      receivedAt,
+    );
+    const input = toProcessWagerTransactionInput(envelope, 'wager-command-consumer');
+
+    expect(envelope).toMatchObject({
+      messageId: 'challenge-message-1',
+      type: WAGER_TRANSACTION_REQUESTED_TYPE,
+    });
+    expect(input.inbox?.messageId).toBe('challenge-message-1');
+    expect(input.correlationId).toBe('challenge-message-1');
+  });
+
   test('keeps application message id separate from SQS transport id', () => {
-    const envelope = parseWagerTransactionCommandEnvelope(
+    const envelope = parseWagerTransactionRequestedEnvelope(
       JSON.stringify(commandEnvelope()),
       receivedAt,
     );
@@ -69,15 +85,15 @@ describe('SQS command envelope', () => {
   });
 
   test('fingerprints command data including idempotency key but ignores envelope metadata', () => {
-    const first = parseWagerTransactionCommandEnvelope(
+    const first = parseWagerTransactionRequestedEnvelope(
       JSON.stringify(commandEnvelope()),
       receivedAt,
     );
-    const replay = parseWagerTransactionCommandEnvelope(
-      JSON.stringify(commandEnvelope({ correlationId: 'correlation-2' })),
+    const replay = parseWagerTransactionRequestedEnvelope(
+      JSON.stringify(commandEnvelope({ occurredAt: '2026-09-01T12:01:00.000Z' })),
       receivedAt,
     );
-    const divergent = parseWagerTransactionCommandEnvelope(
+    const divergent = parseWagerTransactionRequestedEnvelope(
       JSON.stringify({
         ...commandEnvelope(),
         data: { ...first.data, idempotencyKey: 'another-key' },
@@ -90,11 +106,24 @@ describe('SQS command envelope', () => {
   });
 
   test('rejects malformed and unsupported envelopes', () => {
-    expect(() => parseWagerTransactionCommandEnvelope('{')).toThrow(
+    expect(() => parseWagerTransactionRequestedEnvelope('{')).toThrow(
       'SQS message body must be valid JSON',
     );
     expect(() =>
-      parseWagerTransactionCommandEnvelope(JSON.stringify({ ...commandEnvelope(), version: 2 })),
+      parseWagerTransactionRequestedEnvelope(
+        JSON.stringify({ ...commandEnvelope(), type: 'UnsupportedCommand' }),
+      ),
+    ).toThrow('SQS message envelope is invalid');
+    const { type: _type, ...legacyData } = commandEnvelope();
+    expect(() =>
+      parseWagerTransactionRequestedEnvelope(
+        JSON.stringify({
+          ...legacyData,
+          messageType: 'WagerTransactionCommand',
+          version: 1,
+          correlationId: 'legacy-correlation',
+        }),
+      ),
     ).toThrow('SQS message envelope is invalid');
   });
 });
@@ -102,6 +131,8 @@ describe('SQS command envelope', () => {
 class FakeQueue implements SqsQueuePort {
   readonly deleted: string[] = [];
   readonly visibilityChanges: Array<{ receiptHandle: string; timeout: number }> = [];
+  approximateMessageCount = { visible: 0, inFlight: 0, delayed: 0, total: 0 };
+  approximateMessageCountError: Error | undefined;
 
   receive(): Promise<readonly SqsTransportMessage[]> {
     return Promise.resolve([]);
@@ -124,6 +155,18 @@ class FakeQueue implements SqsQueuePort {
   publish(): Promise<void> {
     return Promise.resolve();
   }
+
+  getApproximateMessageCount(): Promise<{
+    visible: number;
+    inFlight: number;
+    delayed: number;
+    total: number;
+  }> {
+    if (this.approximateMessageCountError !== undefined) {
+      return Promise.reject(this.approximateMessageCountError);
+    }
+    return Promise.resolve(this.approximateMessageCount);
+  }
 }
 
 function options(overrides: Partial<SqsCommandConsumerOptions> = {}): SqsCommandConsumerOptions {
@@ -142,7 +185,7 @@ function options(overrides: Partial<SqsCommandConsumerOptions> = {}): SqsCommand
 
 function handlingResult(status: WagerTransactionStatus): SqsCommandHandlingResult {
   return {
-    envelope: parseWagerTransactionCommandEnvelope(JSON.stringify(commandEnvelope()), receivedAt),
+    envelope: parseWagerTransactionRequestedEnvelope(JSON.stringify(commandEnvelope()), receivedAt),
     result: {
       transactionId: 'transaction-1',
       status,
@@ -152,6 +195,49 @@ function handlingResult(status: WagerTransactionStatus): SqsCommandHandlingResul
 }
 
 describe('SQS command consumer', () => {
+  test('reports actual DLQ depth separately from permanent failure classifications', async () => {
+    const queue = new FakeQueue();
+    queue.approximateMessageCount = { visible: 2, inFlight: 1, delayed: 1, total: 4 };
+    const metrics = new SqsConsumerMetrics();
+    metrics.increment('permanentFailures');
+    const monitor = new SqsDlqMetricsMonitor(queue, metrics, {
+      enabled: false,
+      queueName: 'wager-transactions-dlq.fifo',
+      refreshIntervalMs: 5_000,
+    });
+
+    await monitor.refresh();
+
+    expect(metrics.snapshot()).toMatchObject({ permanentFailures: 1, dlqMessages: 4 });
+
+    queue.approximateMessageCountError = new Error('SQS unavailable');
+    await monitor.refresh();
+    expect(metrics.snapshot()).toMatchObject({
+      permanentFailures: 1,
+      dlqMessages: 4,
+      dlqMetricRefreshFailures: 1,
+    });
+  });
+
+  test('builds a structured operational log without financial payload or credentials', () => {
+    const context = sqsCommandCompletedLogContext(handlingResult(WagerTransactionStatus.Processed));
+    const serialized = JSON.stringify(context);
+
+    expect(context).toEqual({
+      correlationId: 'application-message-1',
+      messageId: 'application-message-1',
+      transactionId: 'transaction-1',
+      walletId: '0192f291-27dd-7d3f-8071-5f8685deef37',
+      providerId: 'provider-a',
+      status: WagerTransactionStatus.Processed,
+      idempotentReplay: false,
+    });
+    expect(serialized).not.toContain('amount');
+    expect(serialized).not.toContain('money');
+    expect(serialized).not.toContain('payload');
+    expect(serialized).not.toContain('token');
+  });
+
   test('deletes only after the handler has completed and records business rejection', async () => {
     const queue = new FakeQueue();
     let releaseHandler: (() => void) | undefined;
@@ -196,7 +282,7 @@ describe('SQS command consumer', () => {
     const handler: SqsCommandHandlerPort = {
       handle: () =>
         Promise.resolve({
-          envelope: parseWagerTransactionCommandEnvelope(
+          envelope: parseWagerTransactionRequestedEnvelope(
             JSON.stringify(commandEnvelope()),
             receivedAt,
           ),

@@ -53,9 +53,9 @@ jobs:
         run: bun run security:scan
 
   postgres-integration:
-    name: PostgreSQL integration
+    name: PostgreSQL, LocalStack and distributed integration
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: quality
 
     services:
@@ -118,3 +118,6 @@ jobs:
 
       - name: Run PostgreSQL integration tests
         run: bun run test:integration
+
+      - name: Run distributed concurrency tests twice
+        run: bun run test:concurrency

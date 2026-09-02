@@ -7,6 +7,8 @@ import type { AppConfig } from '../../config/configuration';
 import { activeTraceContext } from '../telemetry';
 import { activeCorrelationId, normalizeCorrelationId } from './correlation.middleware';
 
+export const LOG_REDACT_PATHS = ['req.headers', 'req.body', 'res.headers["set-cookie"]'] as const;
+
 @Module({
   imports: [
     LoggerModule.forRootAsync({
@@ -30,7 +32,7 @@ import { activeCorrelationId, normalizeCorrelationId } from './correlation.middl
             };
           },
           redact: {
-            paths: ['req.headers', 'req.body', 'res.headers["set-cookie"]'],
+            paths: [...LOG_REDACT_PATHS],
             remove: true,
           },
         },

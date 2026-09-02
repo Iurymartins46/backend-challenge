@@ -9,10 +9,11 @@ import {
 } from '@aws-sdk/client-sqs';
 import { randomUUID } from 'node:crypto';
 import { type ChildProcess, spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { DataSource } from 'typeorm';
 
 import { entities } from '../../src/infrastructure/database/entities/registry';
-import { WAGER_TRANSACTION_COMMAND_TYPE } from '../../src/infrastructure/messaging/sqs-command-envelope';
+import { WAGER_TRANSACTION_REQUESTED_TYPE } from '../../src/infrastructure/messaging/sqs-command-envelope';
 
 const baseDatabaseUrl =
   process.env.DATABASE_URL ?? 'postgres://wagering:wagering@localhost:5432/wagering';
@@ -86,7 +87,6 @@ export class DistributedHarness {
   });
 
   private readonly processes: StartedProcess[] = [];
-  private nextPortValue = 4300 + Math.floor(Math.random() * 1000);
   private commandQueueUrl: string | undefined;
   private eventsQueueUrl: string | undefined;
 
@@ -121,7 +121,7 @@ export class DistributedHarness {
 
   async replaceWithCrashInstance(): Promise<StartedProcess> {
     await this.stopInstances();
-    const instance = await this.startInstance(this.nextPort(), true);
+    const instance = await this.startInstance(true);
     return instance;
   }
 
@@ -166,11 +166,7 @@ export class DistributedHarness {
     return { response, body };
   }
 
-  async sendCommand(
-    input: WagerInput,
-    idempotencyKey: string,
-    correlationId = this.nextCorrelationId(),
-  ): Promise<string> {
+  async sendCommand(input: WagerInput, idempotencyKey: string): Promise<string> {
     const messageId = `phase13-${randomUUID()}`;
     await this.sqs.send(
       new SendMessageCommand({
@@ -179,9 +175,7 @@ export class DistributedHarness {
         MessageDeduplicationId: randomUUID(),
         MessageBody: JSON.stringify({
           messageId,
-          messageType: WAGER_TRANSACTION_COMMAND_TYPE,
-          version: 1,
-          correlationId,
+          type: WAGER_TRANSACTION_REQUESTED_TYPE,
           occurredAt: new Date().toISOString(),
           data: { ...input, idempotencyKey },
         }),
@@ -397,12 +391,16 @@ export class DistributedHarness {
   }
 
   private async startInstances(count: number): Promise<void> {
-    await Promise.all(
-      [...Array.from({ length: count })].map(() => this.startInstance(this.nextPort())),
-    );
+    // Bun can race while resolving/transpiling the same NestJS dependency graph in
+    // multiple fresh processes. Start-up is sequential; the fully initialized
+    // processes still execute every distributed scenario concurrently.
+    for (let index = 0; index < count; index += 1) {
+      await this.startInstance();
+    }
   }
 
-  private async startInstance(port: number, crashAfterCommit = false): Promise<StartedProcess> {
+  private async startInstance(crashAfterCommit = false): Promise<StartedProcess> {
+    const port = await findAvailablePort();
     const logs: string[] = [];
     const child = spawn(process.execPath, ['src/bootstrap.ts'], {
       cwd: projectRoot,
@@ -451,13 +449,20 @@ export class DistributedHarness {
     child.stderr?.on('data', (chunk: Buffer) => logs.push(chunk.toString()));
     const instance = { port, process: child, logs };
     this.processes.push(instance);
+    const startupCorrelationId = this.nextCorrelationId();
     await this.waitFor(
       async () => {
+        if (hasExited(child)) {
+          throw this.diagnostic(
+            `application process on port ${port} exited before becoming live`,
+            startupCorrelationId,
+          );
+        }
         const response = await fetch(`http://127.0.0.1:${port}/health/live`).catch(() => undefined);
         return response?.status === 200;
       },
       `application process on port ${port} to become live`,
-      this.nextCorrelationId(),
+      startupCorrelationId,
     );
     return instance;
   }
@@ -522,12 +527,6 @@ export class DistributedHarness {
     return response.QueueUrl;
   }
 
-  private nextPort(): number {
-    const port = this.nextPortValue;
-    this.nextPortValue += 1;
-    return port;
-  }
-
   private async waitFor(
     predicate: () => Promise<boolean>,
     expectation: string,
@@ -543,6 +542,32 @@ export class DistributedHarness {
     }
     throw this.diagnostic(`Timed out waiting for ${expectation}`, correlationId);
   }
+}
+
+async function findAvailablePort(): Promise<number> {
+  const server = createServer();
+  server.unref();
+
+  return new Promise<number>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        server.close();
+        reject(new Error('The operating system did not allocate a TCP port.'));
+        return;
+      }
+
+      const port = address.port;
+      server.close((error) => {
+        if (error !== undefined) {
+          reject(error);
+        } else {
+          resolve(port);
+        }
+      });
+    });
+  });
 }
 
 function isolatedDatabaseUrl(name: string): string {

@@ -13,8 +13,10 @@ import {
   httpTracingMiddleware,
   shutdownTelemetry,
   startTelemetry,
+  withTelemetrySpan,
 } from '../../src/infrastructure/telemetry';
 import { getTelemetryMetrics } from '../../src/infrastructure/telemetry/metrics';
+import { SqsConsumerMetrics } from '../../src/infrastructure/messaging/sqs-consumer.metrics';
 import { MetricsModule } from '../../src/modules/metrics/metrics.module';
 
 let app: NestFastifyApplication | undefined;
@@ -66,6 +68,9 @@ describe('HTTP telemetry', () => {
         exporterEndpoint: 'http://127.0.0.1:1',
       });
       getTelemetryMetrics().increment('wagering.test.counter', 1, { status: 'ok' });
+      const sqsMetrics = new SqsConsumerMetrics(getTelemetryMetrics());
+      sqsMetrics.increment('permanentFailures');
+      sqsMetrics.setDlqMessages(3);
       const module = await Test.createTestingModule({ imports: [MetricsTestModule] }).compile();
       app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
       await app.init();
@@ -88,8 +93,31 @@ describe('HTTP telemetry', () => {
 
       expect(response.statusCode).toBe(200);
       expect(body).toContain('wagering_test_counter_total{status="ok"} 1');
+      expect(body).toContain('wagering_sqs_consumer_permanent_failures_total 1');
+      expect(body).toContain('wagering_sqs_messages_dlq 3');
       expect(body).not.toContain('transactionId');
       expect(body).not.toContain('walletId');
     });
+  });
+});
+
+describe('OTLP failure isolation', () => {
+  test('does not make an instrumented operation depend on an unavailable collector', async () => {
+    await startTelemetry({
+      enabled: true,
+      serviceName: 'telemetry-unavailable-test',
+      serviceVersion: 'test',
+      environment: 'test',
+      exporterEndpoint: 'http://127.0.0.1:1',
+    });
+
+    try {
+      const result = await withTelemetrySpan('financial-operation.test', {}, () =>
+        Promise.resolve('committed'),
+      );
+      expect(result).toBe('committed');
+    } finally {
+      await shutdownTelemetry();
+    }
   });
 });

@@ -78,6 +78,12 @@ class RecordingQueue implements SqsQueuePort {
     this.published.push({ queueName, options });
     return this.delegate.publish(queueName, options);
   }
+
+  getApproximateMessageCount(
+    queueName: string,
+  ): ReturnType<AwsSqsQueueAdapter['getApproximateMessageCount']> {
+    return this.delegate.getApproximateMessageCount(queueName);
+  }
 }
 
 function publisherOptions(overrides: Partial<OutboxPublisherOptions> = {}): OutboxPublisherOptions {

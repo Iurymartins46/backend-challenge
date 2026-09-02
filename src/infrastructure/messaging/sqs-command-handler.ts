@@ -5,7 +5,7 @@ import type {
 } from '../../modules/wagering/application/transaction.types';
 import type { ProcessWagerTransactionUseCase } from '../../modules/wagering/application';
 import {
-  parseWagerTransactionCommandEnvelope,
+  parseWagerTransactionRequestedEnvelope,
   toProcessWagerTransactionInput,
   type SqsWagerCommandEnvelope,
 } from './sqs-command-envelope';
@@ -28,7 +28,7 @@ export class SqsWagerCommandHandler {
   ) {}
 
   async handle(message: SqsTransportMessage): Promise<SqsCommandHandlingResult> {
-    const envelope = parseWagerTransactionCommandEnvelope(message.body, this.clock.now());
+    const envelope = parseWagerTransactionRequestedEnvelope(message.body, this.clock.now());
     const result = await this.processor.execute(
       toProcessWagerTransactionInput(envelope, this.consumerName),
     );

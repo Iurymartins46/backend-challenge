@@ -14,8 +14,9 @@ import { FinancialUnitOfWork } from '../../src/infrastructure/database/financial
 import { AwsSqsQueueAdapter } from '../../src/infrastructure/messaging/aws-sqs-queue.adapter';
 import { SqsCommandConsumer } from '../../src/infrastructure/messaging/sqs-command.consumer';
 import { SqsWagerCommandHandler } from '../../src/infrastructure/messaging/sqs-command-handler';
-import { WAGER_TRANSACTION_COMMAND_TYPE } from '../../src/infrastructure/messaging/sqs-command-envelope';
+import { WAGER_TRANSACTION_REQUESTED_TYPE } from '../../src/infrastructure/messaging/sqs-command-envelope';
 import { SqsConsumerMetrics } from '../../src/infrastructure/messaging/sqs-consumer.metrics';
+import { SqsDlqMetricsMonitor } from '../../src/infrastructure/messaging/sqs-dlq-metrics.monitor';
 import { CreateWalletUseCase } from '../../src/modules/wallet/application';
 import { ProcessWagerTransactionUseCase } from '../../src/modules/wagering/application';
 import {
@@ -80,8 +81,8 @@ integration('SQS consumer and inbox', () => {
       kind: WagerTransactionKind.Bet,
       money: { amount: '25.00', currency: 'BRL' },
     };
-    const firstBody = commandBody(applicationMessageId, 'phase8-correlation-1', data);
-    const replayBody = commandBody(applicationMessageId, 'phase8-correlation-2', data);
+    const firstBody = commandBody(applicationMessageId, data);
+    const replayBody = commandBody(applicationMessageId, data);
 
     await sendCommand(sqsClient, firstBody, wallet.id);
     const processUseCase = new ProcessWagerTransactionUseCase(
@@ -178,6 +179,7 @@ integration('SQS consumer and inbox', () => {
       undefined,
       () => Promise.resolve(),
     );
+    const metrics = new SqsConsumerMetrics();
     const consumer = new SqsCommandConsumer(
       queue,
       new SqsWagerCommandHandler(
@@ -195,24 +197,16 @@ integration('SQS consumer and inbox', () => {
         visibilityHeartbeatSeconds: 1,
         shutdownTimeoutMs: 1000,
       },
-      new SqsConsumerMetrics(),
+      metrics,
     );
 
-    await sendCommand(
-      sqsClient,
-      commandBody(applicationMessageId, 'phase8-dlq-valid', validData),
-      wallet.id,
-    );
+    await sendCommand(sqsClient, commandBody(applicationMessageId, validData), wallet.id);
     await waitFor(async () => {
       await consumer.pollOnce();
       return countTransactions(providerId);
     });
 
-    await sendCommand(
-      sqsClient,
-      commandBody(applicationMessageId, 'phase8-dlq-divergent', divergentData),
-      wallet.id,
-    );
+    await sendCommand(sqsClient, commandBody(applicationMessageId, divergentData), wallet.id);
     const dlqUrl = await getQueueUrl(sqsClient, env.SQS_COMMAND_DLQ_NAME);
     const commandUrl = await getQueueUrl(sqsClient, env.SQS_COMMAND_QUEUE_NAME);
     await waitFor(async () => {
@@ -248,6 +242,16 @@ integration('SQS consumer and inbox', () => {
       );
     }, 15000);
 
+    const dlqMonitor = new SqsDlqMetricsMonitor(sqsQueue, metrics, {
+      enabled: false,
+      queueName: env.SQS_COMMAND_DLQ_NAME,
+      refreshIntervalMs: 5_000,
+    });
+    await waitFor(async () => {
+      await dlqMonitor.refresh();
+      return metrics.snapshot().dlqMessages > 0;
+    }, 15000);
+
     const rows = await dataSource.manager.query<Array<{ transactions: string; balance: string }>>(
       `SELECT
          (SELECT count(*)::text FROM wager_transactions WHERE provider_id = $1) AS transactions,
@@ -256,7 +260,8 @@ integration('SQS consumer and inbox', () => {
       [providerId, wallet.id],
     );
     expect(rows).toEqual([{ transactions: '1', balance: '900' }]);
-    expect(consumer.metrics.snapshot().permanentFailures).toBeGreaterThan(0);
+    expect(metrics.snapshot().dlqMessages).toBeGreaterThan(0);
+    expect(metrics.snapshot().permanentFailures).toBeGreaterThan(0);
   });
 });
 
@@ -266,16 +271,10 @@ if (!runRealIntegration) {
   });
 }
 
-function commandBody(
-  messageId: string,
-  correlationId: string,
-  data: Record<string, unknown>,
-): string {
+function commandBody(messageId: string, data: Record<string, unknown>): string {
   return JSON.stringify({
     messageId,
-    messageType: WAGER_TRANSACTION_COMMAND_TYPE,
-    version: 1,
-    correlationId,
+    type: WAGER_TRANSACTION_REQUESTED_TYPE,
     occurredAt: new Date().toISOString(),
     data,
   });
