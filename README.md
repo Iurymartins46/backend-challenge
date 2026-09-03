@@ -19,44 +19,127 @@ O enunciado e todos os requisitos do desafio estão preservados em
 [docs/CHALLENGE.md](docs/CHALLENGE.md). As decisões e seus trade-offs estão em
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Começar rapidamente
+## Do zero à aplicação funcionando
 
-Pré-requisitos: Bun 1.4.0, Docker Engine e Docker Compose v2. Com o repositório
-clonado, execute os comandos abaixo na raiz:
+O caminho recomendado usa Docker para que API, PostgreSQL, LocalStack, filas e
+migrations sejam reproduzíveis. Você precisa de:
+
+- Git;
+- Bun **1.4.0** (a versão está fixada em `.bun-version` e `package.json`);
+- Docker Engine em execução e Docker Compose v2;
+- Bash e cURL apenas para o smoke test HTTP.
+
+### 1. Clone o projeto e entre na pasta
+
+```bash
+git clone https://github.com/Iurymartins46/backend-challenge.git
+cd backend-challenge
+```
+
+Se já recebeu ou clonou o repositório, apenas abra um terminal na raiz, onde estão
+`package.json`, `.env.example` e este README.
+
+### 2. Confirme as ferramentas
+
+```bash
+git --version
+bun --version
+docker --version
+docker compose version
+docker info
+```
+
+`bun --version` deve imprimir `1.4.0`. `docker info` precisa terminar sem erro; caso
+contrário, inicie o Docker ou ajuste a permissão do seu usuário antes de continuar.
+
+### 3. Instale as dependências e crie a configuração local
 
 ```bash
 bun install --frozen-lockfile
 cp .env.example .env
+```
+
+O primeiro comando instala exatamente as versões registradas em `bun.lock` e falha se
+o manifesto e o lockfile divergirem. O segundo cria sua configuração local. O `.env`
+não é versionado: não coloque credenciais reais no Git. Os valores de exemplo funcionam
+localmente; altere-os apenas para resolver conflito de portas ou testar integrações.
+
+### 4. Construa e inicie toda a stack
+
+```bash
 bun run docker:start
 ```
 
-`docker:start` é o comando único para iniciar a aplicação local completa: constrói a
-imagem, inicia API, PostgreSQL, LocalStack e as filas SQS, e aplica as migrations. Ao
-terminar, use:
+Esse é o comando de inicialização recomendado. Ele constrói a imagem da API, aguarda as
+dependências, cria as filas, aplica as migrations e só considera a subida concluída
+quando os serviços necessários estão saudáveis. Na primeira execução, o download das
+imagens pode demorar alguns minutos.
 
-- API: `http://localhost:3000`
-- Swagger: `http://localhost:3000/docs`
-- OpenAPI: `http://localhost:3000/docs-json`
-- liveness: `http://localhost:3000/health/live`
-- readiness: `http://localhost:3000/health/ready`
+### 5. Verifique a instalação
 
-O `.env.example` contém uma configuração funcional para desenvolvimento. Copie-o antes
-de iniciar e ajuste apenas se houver conflito de portas, credenciais ou serviços
-externos. O arquivo `.env` não é versionado: não coloque segredos no Git. A imagem
-LocalStack padrão funciona sem token; versões mais recentes podem exigir
-`LOCALSTACK_AUTH_TOKEN` — veja [docker/README.md](docker/README.md).
+```bash
+bun run docker:ps
+curl -fsS http://localhost:3000/health/live
+curl -fsS http://localhost:3000/health/ready
+bun run smoke:http
+```
 
-Para executar a API no host, mantendo somente as dependências em containers:
+Os dois endpoints devem responder com status `200`. O smoke cria dados com
+identificadores novos, testa wallet, BET, replay idempotente, consultas, ledger,
+reconciliação, métricas e um erro esperado. Ele não depende de dados previamente
+existentes.
+
+Depois disso, os principais endereços são:
+
+| Recurso | Endereço | Observação |
+| --- | --- | --- |
+| API | `http://localhost:3000` | Base das rotas HTTP. |
+| Swagger | `http://localhost:3000/docs` | Interface interativa do contrato. |
+| OpenAPI | `http://localhost:3000/docs-json` | Documento JSON para ferramentas. |
+| Liveness | `http://localhost:3000/health/live` | Indica que o processo está vivo. |
+| Readiness | `http://localhost:3000/health/ready` | Verifica PostgreSQL e SQS. |
+| Métricas | `http://localhost:3000/metrics` | Exposição Prometheus. |
+| pgAdmin | `http://localhost:8081` | Publicado somente em loopback. |
+
+### 6. Pare a aplicação
+
+```bash
+bun run docker:down
+```
+
+Esse comando remove os containers e a rede, mas preserva os volumes nomeados e os
+dados locais. Para acompanhar a API antes de parar, use `bun run docker:logs`.
+
+### O que o Docker inicia
+
+| Serviço | Papel |
+| --- | --- |
+| `postgres` | Fonte da verdade financeira. |
+| `localstack` | Emula SQS localmente. |
+| `localstack-init` | Cria filas e redrive policy; termina após concluir. |
+| `migrations` | Aplica as migrations e termina após concluir. |
+| `api` | Serve HTTP e executa consumer, publisher e worker. |
+| `pgadmin` | Interface opcional para inspecionar o PostgreSQL. |
+
+Detalhes de imagens, volumes, overlays e solução para hosts sem Buildx estão em
+[docker/README.md](docker/README.md).
+
+## Desenvolvimento com a API no host
+
+Use este modo quando quiser o reload automático do TypeScript, mantendo PostgreSQL e
+LocalStack em containers:
 
 ```bash
 bun run docker:up:infra
+bun run docker:ps
 bun run migration:run
 bun run dev
 ```
 
-Nesse modo, `DATABASE_URL` e `SQS_ENDPOINT` devem apontar para `localhost`, como no
-arquivo de exemplo. Pare os containers com `bun run docker:down`; os volumes são
-preservados.
+Espere `postgres` e `localstack` ficarem `healthy` antes de aplicar a migration. Nesse
+modo, `DATABASE_URL` e `SQS_ENDPOINT` precisam apontar para `localhost`, como já ocorre
+no `.env.example`. A API lê o `.env` da raiz. Encerre o processo com `Ctrl+C` e depois
+execute `bun run docker:down`.
 
 ## Uso da API
 
@@ -86,46 +169,66 @@ bun run smoke:http
 A coleção equivalente para Bruno fica em [tests/http/bruno](tests/http/bruno), e a
 coleção cURL em [tests/http/curl](tests/http/curl).
 
-## Comandos disponíveis
+## Todos os comandos do `package.json`
 
-| Comando | Explicação |
+As tabelas abaixo explicam **cada script** disponível, inclusive pré-condições e efeitos
+relevantes. Todos devem ser executados na raiz do repositório.
+
+### Aplicação, qualidade e testes
+
+| Comando | O que executa e quando usar |
 | --- | --- |
-| `bun run dev` | Inicia a API no host e reinicia ao alterar arquivos TypeScript. |
-| `bun run start` | Inicia a API no host sem modo watch. |
-| `bun run build` | Compila TypeScript para `dist/`. |
-| `bun run typecheck` | Verifica os tipos sem gerar arquivos. |
-| `bun run lint` | Executa ESLint e falha com qualquer warning. |
-| `bun run format` | Formata os arquivos cobertos pela configuração Prettier. |
-| `bun run format:check` | Confere a formatação sem alterar arquivos. |
-| `bun run test` | Executa toda a suíte `bun:test`; cenários reais opt-in são ignorados sem suas variáveis. |
-| `bun run test:unit` | Executa somente os testes unitários. |
-| `bun run test:integration` | Executa os testes de integração; use `RUN_REAL_INTEGRATION_TESTS=true` para ativar os cenários PostgreSQL/LocalStack reais. |
-| `bun run test:concurrency:once` | Executa uma rodada real do harness distribuído com três processos. |
-| `bun run test:concurrency` | Executa duas rodadas do harness distribuído para aumentar a confiança contra flakiness. |
-| `bun run test:load` | Executa o experimento opt-in de carga com banco, filas e processos isolados. |
-| `bun run lockfile:check` | Confirma que `package.json` e `bun.lock` estão sincronizados. |
-| `bun run check` | Executa a verificação local completa: lockfile, formato, lint, tipos, testes, build, smoke de pacotes e scan de segredos. |
-| `bun run docker:config` | Valida a configuração final do Docker Compose usando `.env`. |
-| `bun run docker:build` | Constrói somente a imagem da API. |
-| `bun run docker:build:classic` | Constrói a imagem com o builder clássico para hosts sem Buildx. |
-| `bun run docker:up` | Inicia a stack base usando imagens já construídas. |
-| `bun run docker:up:build` | Constrói a imagem e inicia a stack base, sem aplicar migrations. |
-| `bun run docker:start` | Constrói, inicia a stack base e aplica migrations; é o atalho recomendado para desenvolvimento local. |
-| `bun run docker:up:observability` | Inicia API, dependências e o overlay opcional de observabilidade. |
-| `bun run docker:up:oidc` | Inicia API, dependências e o overlay opcional Keycloak/OIDC com realm de demonstração. |
-| `bun run docker:oidc:config` | Valida a composição base mais o overlay OIDC usando `.env`. |
-| `bun run docker:up:infra` | Inicia somente PostgreSQL, LocalStack e a criação das filas. |
-| `bun run docker:down` | Para e remove os containers da stack, preservando volumes nomeados. |
-| `bun run docker:ps` | Mostra o estado de todos os serviços do Compose. |
-| `bun run docker:logs` | Acompanha os logs da API em tempo real. |
-| `bun run docker:queues` | Lista as filas SQS criadas no LocalStack. |
-| `bun run migration:run` | Aplica migrations pendentes no banco configurado por `DATABASE_URL`. |
-| `bun run migration:revert` | Reverte a última migration aplicada. |
-| `bun run migration:show` | Mostra migrations aplicadas e pendentes. |
-| `bun run migration:generate <nome>` | Gera uma migration a partir das mudanças de entidades; sem nome, usa `schema`. |
-| `bun run smoke:packages` | Verifica a compatibilidade de pacotes usada no runtime. |
-| `bun run smoke:http` | Exercita a API com cURL: wallet, aposta, replay, leituras, ledger, reconciliação e erros. |
-| `bun run security:scan` | Procura padrões de segredos em arquivos rastreados; é uma verificação heurística local. |
+| `bun run dev` | Executa `bun --watch src/bootstrap.ts`. Inicia a API no host e reinicia quando os fontes mudam; exige PostgreSQL/SQS conforme a configuração do `.env`. |
+| `bun run start` | Executa `bun src/bootstrap.ts`. Inicia a API no host sem watch, útil para uma execução local semelhante à de produção. |
+| `bun run build` | Executa o TypeScript com `tsconfig.build.json` e grava JavaScript em `dist/`. Não inicia a API. |
+| `bun run typecheck` | Executa `tsc --noEmit`; verifica tipos sem criar `dist/` nem alterar fontes. |
+| `bun run lint` | Executa ESLint no repositório e usa `--max-warnings=0`; qualquer erro ou warning reprova o comando. |
+| `bun run format` | Executa Prettier com `--write` nos fontes, testes, scripts e configurações listados no script. **Altera arquivos.** Markdown não faz parte desse escopo. |
+| `bun run format:check` | Verifica a mesma seleção do comando anterior sem alterar arquivos. |
+| `bun run test` | Executa `bun test`. Inclui a suíte descoberta pelo Bun; testes reais opt-in permanecem ignorados quando suas flags não estão habilitadas. |
+| `bun run test:unit` | Executa apenas `tests/unit`; não exige PostgreSQL nem LocalStack. |
+| `bun run test:integration` | Executa `tests/integration` em série (`--max-concurrency=1`). Para rodar os cenários reais, use `RUN_REAL_INTEGRATION_TESTS=true bun run test:integration` com PostgreSQL e LocalStack saudáveis. |
+| `bun run test:concurrency:once` | Define `RUN_REAL_CONCURRENCY_TESTS=true` e executa uma rodada serial do harness distribuído. A rodada cria banco/filas isolados e sobe três processos; exige a infraestrutura base saudável. |
+| `bun run test:concurrency` | Encadeia duas execuções de `test:concurrency:once`. A segunda só começa se a primeira passar; repetir ajuda a revelar flakiness de concorrência. |
+| `bun run test:load` | Executa `scripts/load-test.ts`: experimento real isolado com três processos, cenário de hot wallet e cenário de várias wallets. Exige PostgreSQL/LocalStack e não integra o gate padrão. |
+| `bun run lockfile:check` | Executa `bun install --frozen-lockfile --lockfile-only`; valida que `package.json` e `bun.lock` estão sincronizados sem instalar `node_modules`. |
+| `bun run check` | Gate local padrão, em sequência: lockfile, formato, lint, tipos, testes, build, smoke de pacotes e scan de segredos. Para no primeiro erro e não ativa as suítes reais opt-in. |
+| `bun run smoke:packages` | Executa `tests/smoke/packages.ts` para verificar imports e compatibilidade mínima dos pacotes usados no runtime Bun. |
+| `bun run smoke:http` | Executa `tests/http/curl/smoke.sh`; requer API em `localhost:3000`, Bash, cURL e Bun. Cria fixtures únicas e valida o fluxo HTTP principal. |
+| `bun run security:scan` | Executa o scanner heurístico local em `scripts/security-scan.sh`; procura padrões comuns de segredo no worktree sem rede. Não substitui uma ferramenta corporativa. |
+
+### Docker Compose
+
+Todos estes scripts leem o `.env` da raiz e usam `docker/compose.yaml`.
+
+| Comando | O que executa e quando usar |
+| --- | --- |
+| `bun run docker:config` | Renderiza e valida silenciosamente o Compose base. Não sobe containers. |
+| `bun run docker:build` | Constrói apenas a imagem `api` com o builder padrão. Não inicia serviços. |
+| `bun run docker:build:classic` | Faz o mesmo build com BuildKit desabilitado; é o fallback para hosts sem o plugin Buildx. |
+| `bun run docker:up` | Executa a stack base em segundo plano com `--wait`, usando a imagem da API já existente. Inclui PostgreSQL, pgAdmin, LocalStack, filas, migrations e API. |
+| `bun run docker:up:build` | Igual ao anterior, mas usa `--build` antes de subir. É uma alternativa direta que exige um Buildx funcional; `docker:start` possui fallback automático. |
+| `bun run docker:start` | Caminho recomendado para a primeira inicialização. `scripts/docker-start.sh` tenta construir a API com Buildx, repete automaticamente com o builder clássico se esse build falhar e então executa `docker:up`. |
+| `bun run docker:up:observability` | Combina o Compose base com o overlay de Collector, Prometheus, Tempo, Loki, Alloy e Grafana. Não força rebuild; execute `docker:start` antes se a imagem da API ainda não existir. |
+| `bun run docker:up:oidc` | Combina o Compose base com o overlay Keycloak, força `AUTH_MODE=oidc` na API e importa o realm de demonstração. Também requer a imagem da API previamente construída. |
+| `bun run docker:oidc:config` | Valida a composição final do Compose base mais o overlay OIDC sem iniciar containers. |
+| `bun run docker:up:infra` | Sobe apenas PostgreSQL, LocalStack e o inicializador das filas. Não sobe API, pgAdmin nem o serviço de migrations e não usa `--wait`; confira a saúde antes do próximo comando. |
+| `bun run docker:down` | Para e remove containers e rede do projeto Compose. Não passa `--volumes`, portanto preserva os dados nomeados. |
+| `bun run docker:ps` | Exibe containers ativos, concluídos e parados do projeto (`--all`), útil para diagnóstico de health e migrations. |
+| `bun run docker:logs` | Segue os logs da API (`logs -f api`) até `Ctrl+C`; não para o container. |
+| `bun run docker:queues` | Executa `awslocal sqs list-queues` dentro do LocalStack e lista as filas disponíveis. Requer o container ativo. |
+
+### Migrations
+
+Estes comandos usam `DATABASE_URL`. No host, ela deve apontar para a porta publicada do
+PostgreSQL; dentro do Compose, o serviço `migrations` usa a URL interna.
+
+| Comando | O que executa e quando usar |
+| --- | --- |
+| `bun run migration:run` | Aplica em ordem todas as migrations pendentes pelo data source TypeORM. **Altera o schema do banco configurado.** |
+| `bun run migration:revert` | Reverte somente a última migration aplicada. **Altera o schema** e deve ser usado com cuidado fora do ambiente local. |
+| `bun run migration:show` | Lista migrations aplicadas e pendentes sem modificar o schema. |
+| `bun run migration:generate <nome>` | Compara entidades e banco pelo script `scripts/generate-migration.ts`, criando um arquivo em `src/infrastructure/database/migrations`. O nome aceita letras, números e hífens; sem argumento usa `schema`. **Cria arquivo e exige banco acessível.** |
 
 Os comandos de integração, concorrência e carga exigem PostgreSQL e LocalStack saudáveis.
 Inicie-os antes com `bun run docker:up:infra`. Eles usam recursos efêmeros próprios e
@@ -139,7 +242,7 @@ migration a partir das entidades, revise o SQL e valide ida, volta e nova ida em
 banco real:
 
 ```bash
-bun run migration:generate adiciona-tabelas-e-signer
+bun run migration:generate add-transaction-metadata
 bun run migration:show
 bun run migration:run
 bun run migration:revert
@@ -163,7 +266,9 @@ estão em [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 ## Autenticação OIDC opcional
 
-O modo padrão é `AUTH_MODE=none`, exclusivamente para desenvolvimento local. Para subir
+O modo padrão é `AUTH_MODE=none`, destinado exclusivamente ao desenvolvimento local.
+Essa restrição é operacional e não é bloqueada pelo parser de ambiente; um deploy deve
+definir `AUTH_MODE=oidc` explicitamente. Para subir
 o demo protegido com Keycloak, mantenha os valores OIDC do `.env.example` e execute:
 
 ```bash
@@ -199,20 +304,23 @@ rotação de chaves sem reinício.
 
 ## Documentação
 
+- [Mapa da documentação e trilhas de leitura](docs/README.md)
 - [Requisitos do desafio](docs/CHALLENGE.md)
 - [Decisões de arquitetura](ARCHITECTURE.md)
 - [API, Swagger e contrato de erros](docs/API_AND_ERRORS.md)
 - [Dinheiro](docs/MONEY.md)
 - [Banco de dados](docs/DATABASE.md)
 - [Mensageria](docs/MESSAGING.md)
+- [Observabilidade](docs/OBSERVABILITY.md)
 - [Estratégia de testes](docs/TESTING.md)
 - [Teste de carga](docs/LOAD_TEST.md)
 - [Registro de entrega e evidências](docs/DELIVERY.md)
 - [Plano de implementação histórico](docs/IMPLEMENTATION_PLAN.md)
+- [Guia pessoal de estudo para entrevista](docs-estudar/GUIA_ENTREVISTA.md)
 
 ## Problemas comuns
 
-- Sem Buildx: execute `bun run docker:build:classic` e depois `bun run docker:up`.
+- Sem Buildx: `bun run docker:start` usa automaticamente o builder clássico. Para executar o fallback manualmente, use `bun run docker:build:classic` e depois `bun run docker:up`.
 - Dependências não ficam saudáveis: use `bun run docker:ps` e os logs do serviço no
   Compose; as portas padrão são 5432 (PostgreSQL) e 4566 (LocalStack).
 - API sem tabelas: execute `bun run migration:run` ou reinicie por `bun run docker:start`.

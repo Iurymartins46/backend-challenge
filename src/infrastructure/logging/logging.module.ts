@@ -6,8 +6,9 @@ import type { IncomingMessage } from 'node:http';
 import type { AppConfig } from '../../config/configuration';
 import { activeTraceContext } from '../telemetry';
 import { activeCorrelationId, normalizeCorrelationId } from './correlation.middleware';
+import { LOG_REDACT_PATHS } from './redaction';
 
-export const LOG_REDACT_PATHS = ['req.headers', 'req.body', 'res.headers["set-cookie"]'] as const;
+export { LOG_REDACT_PATHS } from './redaction';
 
 @Module({
   imports: [

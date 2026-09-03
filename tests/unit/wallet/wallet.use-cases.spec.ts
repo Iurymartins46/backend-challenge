@@ -83,6 +83,12 @@ class InMemoryFinancialUnitOfWork implements FinancialUnitOfWorkPort {
   readonly transactions: WagerTransactionRepositoryPort = {
     findById: (id) =>
       resolved(this.storedTransactions.find((transaction) => transaction.id === id) ?? null),
+    findByIdAndProviderId: (id, providerId) =>
+      resolved(
+        this.storedTransactions.find(
+          (transaction) => transaction.id === id && transaction.providerId === providerId,
+        ) ?? null,
+      ),
     findByProviderAndExternalTransactionId: () => resolved(null),
     findByProviderAndIdempotencyKey: () => resolved(null),
     findProcessedReversal: () => resolved(null),

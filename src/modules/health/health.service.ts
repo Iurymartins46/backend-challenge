@@ -40,7 +40,7 @@ export class HealthService implements OnApplicationShutdown {
   private async checkDependencies(): Promise<HealthResponseDto> {
     const [postgres, sqs] = await Promise.all([
       this.probe(() => this.checkPostgres()),
-      this.probe(() => this.checkSqs()),
+      this.probe((signal) => this.checkSqs(signal)),
     ]);
     const ready = postgres.status === 'up' && sqs.status === 'up';
 
@@ -55,17 +55,26 @@ export class HealthService implements OnApplicationShutdown {
     await this.databaseHealthCheck.check();
   }
 
-  private async checkSqs(): Promise<void> {
-    await this.sqsClient.send(
-      new GetQueueUrlCommand({
-        QueueName: this.config.get('messaging.commandQueueName', { infer: true }),
-      }),
+  private async checkSqs(signal: AbortSignal): Promise<void> {
+    const queueNames = [
+      this.config.get('messaging.commandQueueName', { infer: true }),
+      this.config.get('messaging.eventsQueueName', { infer: true }),
+    ];
+    await Promise.all(
+      queueNames.map((QueueName) =>
+        this.sqsClient.send(new GetQueueUrlCommand({ QueueName }), { abortSignal: signal }),
+      ),
     );
   }
 
-  private async probe(check: () => Promise<void>): Promise<HealthDependencyDto> {
+  private async probe(check: (signal: AbortSignal) => Promise<void>): Promise<HealthDependencyDto> {
+    const controller = new AbortController();
     try {
-      await withTimeout(check(), this.config.get('health.timeoutMs', { infer: true }));
+      await withTimeout(
+        check(controller.signal),
+        this.config.get('health.timeoutMs', { infer: true }),
+        controller,
+      );
       return { status: 'up' };
     } catch {
       return { status: 'down' };
@@ -84,9 +93,16 @@ export class HealthService implements OnApplicationShutdown {
   }
 }
 
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  controller: AbortController,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Health check deadline exceeded.')), timeoutMs);
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error('Health check deadline exceeded.'));
+    }, timeoutMs);
     operation.then(
       (value) => {
         clearTimeout(timer);

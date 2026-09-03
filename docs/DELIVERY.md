@@ -6,14 +6,20 @@ carga é opcional. `docs/CHALLENGE.md` permanece como o enunciado original.
 
 ## Como validar do zero
 
+O passo a passo completo, incluindo pré-requisitos, verificação das ferramentas e
+diagnóstico, está no [`README.md`](../README.md#do-zero-à-aplicação-funcionando). O
+caminho mínimo é:
+
 ```bash
 bun install --frozen-lockfile
 cp .env.example .env
-bun run docker:up:infra
-bun run migration:run
-bun run docker:up:build
+bun run docker:start
 bun run smoke:http
 ```
+
+`docker:start` constrói a API, usa automaticamente o builder clássico se o Buildx
+falhar, aguarda as dependências, cria as filas e executa o serviço de migrations. Não
+é necessário aplicar a mesma migration manualmente antes desse fluxo.
 
 Verificações locais sem dependências reais:
 
@@ -35,10 +41,12 @@ bun run test:concurrency
 bun run test:load
 ```
 
-`test:integration` cria bancos temporários para seus cenários e
-`test:concurrency` executa duas rodadas completas. Cada rodada cria banco, filas e três
-processos próprios. Ambos exigem PostgreSQL e LocalStack saudáveis, mas não devem usar o
-banco de desenvolvimento como fixture de resultado.
+`test:integration` cria bancos temporários para seus cenários; os testes de inbox também
+criam uma fila de comandos e uma DLQ exclusivas, portanto podem rodar enquanto a API de
+desenvolvimento consome a fila padrão. `test:concurrency` executa duas rodadas completas,
+e cada rodada cria banco, filas e três processos próprios. Ambos exigem PostgreSQL e
+LocalStack saudáveis, mas não usam o banco nem as filas de desenvolvimento como fixture
+de resultado.
 
 ## Diagrama final
 
@@ -130,42 +138,47 @@ O registro abaixo deve refletir a última execução real da suíte e não uma e
 | Mensageria               | LocalStack Community 4.14.0, SQS                                          |
 | Container tooling        | Docker 29.7.2; Docker Compose v5.5.0                                      |
 | Máquina                  | Linux 7.0.0-30-generic, x86_64, 22 CPUs, 14,99 GiB RAM                   |
-| Suíte unitária           | 76 testes, 288 assertions, 554 ms                                         |
+| Suíte unitária           | 92 testes, 320 assertions                                                  |
 | Suíte de integração real | 34 testes, 174 assertions, 2,27 s, PostgreSQL/LocalStack e DLQ real       |
 | Suíte distribuída real   | 2 rodadas; 16 execuções, 42 assertions, 47,91 s                           |
-| Suíte de carga real      | 2 cenários; 707/4.088 requests na medição; 0 erros; wallets/ledger consistentes; outbox não drenou em 35 s |
-| Smoke HTTP real          | `bun run smoke:http` passou contra API containerizada em `localhost:3000` |
+| Suíte de carga real      | 2 cenários; 619/3.228 requests na medição; 0 erros; wallets/ledger consistentes; outbox drenou |
+| Smoke HTTP real          | `bun run docker:up && bun run smoke:http` passou contra API containerizada em `localhost:3000` |
 | Health com falha real    | LocalStack e PostgreSQL: liveness 200 e readiness 503                     |
 
-Na execução real registrada, o cenário hot wallet observou 707 requests na
-medição, 138,75 RPS, p50/p95/p99 de 128,31/157,20/174,29 ms e zero erros. O cenário
-muitas wallets observou 4.088 requests, 815,80 RPS, p50/p95/p99 de
-16,82/36,35/44,99 ms e zero erros. Não houve divergência wallet/ledger nem conflito de
-lock observado. A outbox chegou a 1.462 pendências no primeiro cenário e a 10.018 no
-segundo; após 35 s de cooldown/drenagem ainda havia 472 e 9.028, respectivamente.
-Esse backlog é uma limitação observada da configuração padrão, não foi ocultado nem
-usado para relaxar as garantias financeiras.
+Na execução real registrada, o cenário hot wallet observou 619 requests na
+medição, 120,58 RPS, p50/p95/p99 de 147,95/194,02/211,55 ms e zero erros. O cenário
+muitas wallets observou 3.228 requests, 643,61 RPS, p50/p95/p99 de
+21,83/43,02/53,80 ms e zero erros. Não houve divergência wallet/ledger nem conflito de
+lock observado. A outbox chegou a 81 pendências no primeiro cenário e a 5.416 no
+segundo; drenou completamente em 5,00 s e 8,70 s de cooldown/drenagem,
+respectivamente.
 
-O caminho padrão `bun run docker:up:build` encontrou o Buildx ausente no host; o caminho
-documentado `bun run docker:build:classic` construiu a imagem e `bun run docker:up`
-subiu a API com healthcheck saudável. A duração acima é a observada nesta execução, não
-uma estimativa de desempenho.
+O publisher continua os lotes imediatamente enquanto há mensagens disponíveis e só
+aguarda o intervalo configurado quando não há trabalho. Assim, a carga mede também a
+recuperação do backlog sem relaxar as garantias financeiras.
+
+`bun run docker:start` foi validado depois da remoção da imagem local da API. O script
+detectou o link simbólico quebrado do Buildx, selecionou automaticamente o builder
+clássico, construiu a imagem, executou migrations e subiu a API com healthcheck saudável.
+O serviço de migrations usa `pull_policy: never`, pois sua imagem é produzida localmente
+pelo serviço da API e não deve ser procurada em um registry. A duração acima é a
+observada nesta execução, não uma estimativa de desempenho.
 
 Na Fase 15, o overlay OIDC foi validado com Keycloak 26.7.3 e realm importado. Um token
 `client_credentials` de `provider-a` passou pela API atual executada no host contra as
 dependências Docker e recebeu `404` somente porque a transação de consulta não existia;
 health permaneceu `200`, token ausente/inválido retornou `401` e um POST com
 `providerId=provider-b` retornou `403/error.auth.provider_mismatch`. O rebuild clássico
-da imagem Docker desta fase ficou bloqueado por falha do Bun ao extrair
-`swagger-ui-dist`; não é apresentado como evidência de imagem atualizada.
+da imagem Docker compartilhada foi executado com sucesso nesta auditoria.
 
 ## Autenticação opcional implementada
 
 O overlay `docker/compose.oidc.yaml` sobe Keycloak e importa o realm/demo clients. O
 adapter OIDC valida JWT RS256 por issuer, audience, assinatura, expiração e JWKS, aplica
 scopes e bloqueia divergência entre `provider_id` autenticado e `providerId` da operação.
-`AUTH_MODE=none` permanece exclusivamente para desenvolvimento; a execução real do
-overlay e do fluxo client credentials deve ser registrada nesta seção quando realizada.
+`AUTH_MODE=none` permanece como modo de desenvolvimento; a configuração não bloqueia
+esse valor por `NODE_ENV`, portanto o deploy é responsável por exigir OIDC. O overlay e
+o fluxo client credentials foram validados na execução registrada acima.
 
 ## Notas não bloqueantes
 

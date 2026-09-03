@@ -65,6 +65,7 @@ describe('Money', () => {
   test('validates currencies and reports mismatches', () => {
     expect(() => Money.from({ amount: '1.00', currency: 'brl' })).toThrow(MoneyCurrencyError);
     expect(() => Money.from({ amount: '1.00', currency: 'BR' })).toThrow(MoneyCurrencyError);
+    expect(() => Money.from({ amount: '1.00', currency: 'ZZZ' })).toThrow(MoneyCurrencyError);
 
     const brl = Money.from({ amount: '1.00', currency: 'BRL' });
     const usd = Money.from({ amount: '1.00', currency: 'USD' });

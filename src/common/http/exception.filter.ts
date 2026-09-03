@@ -5,6 +5,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { PinoLogger } from 'nestjs-pino';
 
 import { formatExceptionResponse } from './exception-response';
+import { exceptionLogContext } from './exception-log-context';
 import { activeTraceContext } from '../../infrastructure/telemetry';
 import { requestCorrelationId } from '../../infrastructure/logging/correlation.middleware';
 export { formatExceptionResponse } from './exception-response';
@@ -33,7 +34,7 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     if (body.status >= 500) {
       this.logger.error(
         {
-          err: exception,
+          error: exceptionLogContext(exception),
           status: body.status,
           traceId,
           path: request.url,

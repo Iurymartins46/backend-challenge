@@ -2,6 +2,11 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, test } from 'bun:test';
 
 import { formatExceptionResponse } from '../../src/common/http/exception-response';
+import { exceptionLogContext } from '../../src/common/http/exception-log-context';
+import {
+  DomainInvariantError,
+  InboxPayloadConflictError,
+} from '../../src/modules/wagering/domain/errors';
 
 describe('global error contract', () => {
   test('always returns a non-empty errors array', () => {
@@ -97,5 +102,43 @@ describe('global error contract', () => {
         detail: 'Request body must contain valid JSON.',
       },
     ]);
+  });
+
+  test('does not expose invariant details or undocumented domain codes', () => {
+    const response = formatExceptionResponse(
+      new DomainInvariantError('SQL statement and money details must stay private.'),
+      'trace-7',
+    );
+
+    expect(response).toMatchObject({
+      status: 500,
+      detail: 'The operation could not be completed at this time.',
+      errors: [{ code: 'error.infrastructure.internal_error' }],
+    });
+    expect(JSON.stringify(response)).not.toContain('SQL statement');
+  });
+
+  test('maps inbox payload conflicts to a documented public conflict', () => {
+    const response = formatExceptionResponse(new InboxPayloadConflictError(), 'trace-8');
+
+    expect(response).toMatchObject({
+      status: 409,
+      errors: [{ code: 'error.idempotency.payload_conflict' }],
+    });
+  });
+
+  test('sanitizes persistence exceptions before structured logging', () => {
+    const persistenceError = Object.assign(new Error('database failure'), {
+      name: 'QueryFailedError',
+      code: '23505',
+      query: 'INSERT INTO wallets (balance_minor) VALUES ($1)',
+      parameters: ['2500'],
+      driverError: { detail: 'sensitive database detail' },
+    });
+
+    const context = exceptionLogContext(persistenceError);
+    expect(context).toEqual({ type: 'QueryFailedError', code: '23505' });
+    expect(JSON.stringify(context)).not.toContain('2500');
+    expect(JSON.stringify(context)).not.toContain('INSERT INTO');
   });
 });

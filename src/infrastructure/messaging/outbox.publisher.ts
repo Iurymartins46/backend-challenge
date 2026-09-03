@@ -249,14 +249,18 @@ export class OutboxPublisher {
 
   private async pollLoop(): Promise<void> {
     while (this.running) {
+      let result: OutboxPublishBatchResult | undefined;
       try {
-        await this.publishOnce();
+        result = await this.publishOnce();
       } catch (error: unknown) {
         this.metrics.increment('claimFailures');
         this.logger.warn(`Outbox polling failed: ${safeErrorMessage(error)}`);
       }
 
-      if (this.running) {
+      // Drain continuously while claims are available. The interval is only an
+      // idle poll delay; sleeping after every non-empty batch throttles recovery
+      // and lets confirmed events accumulate under load.
+      if (this.running && (result === undefined || result.claimed === 0)) {
         await delay(this.options.pollIntervalMs);
       }
     }

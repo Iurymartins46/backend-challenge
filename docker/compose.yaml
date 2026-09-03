@@ -80,6 +80,22 @@ services:
       retries: 10
       start_period: 5s
 
+  pgadmin:
+    image: elestio/pgadmin:REL-9_17
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:?Set PGADMIN_DEFAULT_EMAIL in .env}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?Set PGADMIN_DEFAULT_PASSWORD in .env}
+      PGADMIN_LISTEN_PORT: ${PGADMIN_LISTEN_PORT:?Set PGADMIN_LISTEN_PORT in .env}
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+    ports:
+      - '127.0.0.1:${PGADMIN_PORT:?Set PGADMIN_PORT in .env}:${PGADMIN_LISTEN_PORT:?Set PGADMIN_LISTEN_PORT in .env}'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   localstack:
     image: ${LOCALSTACK_IMAGE:?Set LOCALSTACK_IMAGE in .env}
     environment:
@@ -120,7 +136,27 @@ services:
     entrypoint: ['/bin/sh', '/usr/local/bin/init-queues.sh']
     restart: 'no'
 
+  migrations:
+    image: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in .env}-api
+    # The image is produced by the api service in the same Compose project.
+    # Never try to pull this local-only tag from a registry during first startup.
+    pull_policy: never
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:?Set DATABASE_URL_DOCKER in .env}
+      DATABASE_LOCK_TIMEOUT_MS: ${DATABASE_LOCK_TIMEOUT_MS:-5000}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
+    command:
+      - ./node_modules/typeorm/cli.js
+      - migration:run
+      - -d
+      - dist/infrastructure/database/data-source.js
+    restart: 'no'
+
   api:
+    image: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in .env}-api
     build:
       context: ..
       dockerfile: docker/api/Dockerfile
@@ -132,6 +168,8 @@ services:
       localstack:
         condition: service_healthy
       localstack-init:
+        condition: service_completed_successfully
+      migrations:
         condition: service_completed_successfully
     environment:
       <<: *api-environment
@@ -146,7 +184,7 @@ services:
         - bun
         - -e
         - >-
-          fetch('http://127.0.0.1:' + process.env.PORT + '/health/live')
+          fetch('http://127.0.0.1:' + process.env.PORT + '/health/ready')
           .then((response) => process.exit(response.ok ? 0 : 1))
           .catch(() => process.exit(1))
       interval: 5s
@@ -156,4 +194,5 @@ services:
 
 volumes:
   postgres-data:
+  pgadmin-data:
   localstack-data:

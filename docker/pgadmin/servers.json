@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Distributed Wagering PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "wagering",
+      "Username": "wagering",
+      "SSLMode": "prefer",
+      "Shared": false
+    }
+  }
+}

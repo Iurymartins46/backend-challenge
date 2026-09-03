@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import pino from 'pino';
 
-import { LOG_REDACT_PATHS } from '../../src/infrastructure/logging/logging.module';
+import { LOG_REDACT_PATHS } from '../../src/infrastructure/logging/redaction';
 
 describe('structured logging', () => {
   test('keeps operational identifiers and removes headers, payload and financial values', () => {

@@ -476,4 +476,38 @@ describe('outbox publisher', () => {
     expect(repository.get('event-a')?.isPending()).toBe(false);
     expect(repository.get('event-b')?.isPending()).toBe(false);
   });
+
+  test('continues draining available batches without waiting for the idle poll interval', async () => {
+    const queue = new FakeQueue();
+    const repository = new FakeOutboxRepository([
+      message('event-drain-a', 'WagerTransactionProcessed', 1),
+      message('event-drain-b', 'WagerTransactionProcessed', 1),
+    ]);
+    const outboxPublisher = publisher(queue, repository, new MutableClock(), 'publisher-drain', {
+      ...options(new ExponentialRetryPolicy({ baseDelayMs: 100, maxDelayMs: 100, maxAttempts: 2 })),
+      enabled: true,
+      batchSize: 1,
+      pollIntervalMs: 1000,
+    });
+
+    outboxPublisher.start();
+    try {
+      await waitUntil(() => queue.published.length === 2, 250);
+      expect(repository.get('event-drain-a')?.isPending()).toBe(false);
+      expect(repository.get('event-drain-b')?.isPending()).toBe(false);
+    } finally {
+      await outboxPublisher.stop();
+    }
+  });
 });
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Condition was not met within ${timeoutMs}ms.`);
+}

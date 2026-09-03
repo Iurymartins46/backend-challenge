@@ -4,7 +4,10 @@ import { Reflector } from '@nestjs/core';
 import { describe, expect, test } from 'bun:test';
 
 import type { AppConfig } from '../../src/config/configuration';
-import { ProviderAuthGuard } from '../../src/modules/auth/provider-auth.guard';
+import {
+  providerPrincipalFromRequest,
+  ProviderAuthGuard,
+} from '../../src/modules/auth/provider-auth.guard';
 
 function executionContext(): ExecutionContext {
   return {
@@ -60,6 +63,23 @@ describe('provider auth boundary', () => {
       guard.canActivate(oidcExecutionContext({ body: { providerId: 'provider-a' }, headers: {} })),
       403,
     );
+  });
+
+  test('attaches the authenticated principal for provider-scoped reads', async () => {
+    const request = { headers: {} };
+    const config = { get: () => 'oidc' } as unknown as ConfigService<AppConfig, true>;
+    const identity = {
+      identify: () =>
+        Promise.resolve({ providerId: 'provider-a', subject: 'subject', scopes: ['wager:read'] }),
+    };
+    const guard = new ProviderAuthGuard(new Reflector(), config, identity);
+
+    expect(await guard.canActivate(oidcExecutionContext(request))).toBe(true);
+    expect(providerPrincipalFromRequest(request)).toEqual({
+      providerId: 'provider-a',
+      subject: 'subject',
+      scopes: ['wager:read'],
+    });
   });
 });
 
