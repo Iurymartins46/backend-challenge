@@ -6,14 +6,20 @@ carga é opcional. `docs/CHALLENGE.md` permanece como o enunciado original.
 
 ## Como validar do zero
 
+O passo a passo completo, incluindo pré-requisitos, verificação das ferramentas e
+diagnóstico, está no [`README.md`](../README.md#do-zero-à-aplicação-funcionando). O
+caminho mínimo é:
+
 ```bash
 bun install --frozen-lockfile
 cp .env.example .env
-bun run docker:up:infra
-bun run migration:run
-bun run docker:up:build
+bun run docker:start
 bun run smoke:http
 ```
+
+`docker:start` já constrói a API, aguarda as dependências, cria as filas e executa o
+serviço de migrations. Não é necessário aplicar a mesma migration manualmente antes
+desse fluxo.
 
 Verificações locais sem dependências reais:
 
@@ -166,8 +172,9 @@ da imagem Docker compartilhada foi executado com sucesso nesta auditoria.
 O overlay `docker/compose.oidc.yaml` sobe Keycloak e importa o realm/demo clients. O
 adapter OIDC valida JWT RS256 por issuer, audience, assinatura, expiração e JWKS, aplica
 scopes e bloqueia divergência entre `provider_id` autenticado e `providerId` da operação.
-`AUTH_MODE=none` permanece exclusivamente para desenvolvimento. O overlay e o fluxo
-client credentials foram validados na execução registrada acima.
+`AUTH_MODE=none` permanece como modo de desenvolvimento; a configuração não bloqueia
+esse valor por `NODE_ENV`, portanto o deploy é responsável por exigir OIDC. O overlay e
+o fluxo client credentials foram validados na execução registrada acima.
 
 ## Notas não bloqueantes
 

@@ -51,6 +51,43 @@ persistência. Operações de escrita recebem DTOs nomeados e executam dentro de
 
 ## Decisões arquiteturais
 
+Cada decisão abaixo registra o problema resolvido, o motivo e o custo aceito. Detalhes
+de configuração e procedimentos operacionais ficam nos documentos temáticos para que
+este arquivo permaneça como mapa das escolhas, e não como segundo manual de execução.
+
+### Monólito modular com workers no mesmo deployable
+
+**Decisão.** API HTTP, consumidor SQS, publisher da outbox e worker de referências são
+módulos do mesmo executável NestJS. Domínio e aplicação dependem de portas; adapters de
+PostgreSQL, SQS, HTTP e OIDC ficam nas bordas.
+
+**Motivo.** O escopo possui uma única fronteira transacional e um único modelo
+financeiro. Um deployable reduz custo operacional e evita duplicar contratos internos,
+enquanto módulos e portas permitem executar três processos independentes e separar
+workers no futuro sem reescrever o domínio.
+
+**Trade-off.** Escalar a API também replica os workers habilitados, e uma falha de
+processo afeta todos os papéis daquela instância. Flags de ambiente permitem desligar
+consumidor/publishers por processo, mas o projeto não oferece manifests separados de
+deploy nem autoscaling independente.
+
+### TypeORM com Unit of Work explícita
+
+**Decisão.** Usar TypeORM, opção aceita pelo desafio, com entidades restritas à
+infraestrutura, mappers explícitos e repositories criados a partir do `EntityManager`
+da transação.
+
+**Motivo.** A experiência prévia com a ferramenta reduz risco de entrega, e o acesso a
+transações, locks pessimistas, isolation level e SQL permite implementar as garantias
+necessárias. A Unit of Work explícita impede que um repository use acidentalmente o
+manager global durante uma escrita financeira.
+
+**Trade-off.** TypeORM não torna esses limites seguros por padrão. A implementação
+precisa disciplinar managers transacionais, mapear `BIGINT` sem passar por `number` e
+usar SQL direto para claims, leases, índices parciais e constraints mais específicas.
+MikroORM ofereceria Unit of Work e Identity Map mais explícitos, mas trocar de ORM
+aumentaria o risco do timebox sem remover a necessidade de conhecer o SQL gerado.
+
 ### Dinheiro em centavos com `bigint`
 
 **Decisão.** A API recebe e devolve decimal como string (`"25.00"`); o domínio usa
@@ -167,8 +204,9 @@ incidente, mas preserva auditabilidade e evita que um diagnóstico destrua evid�
 
 **Decisão.** DTOs/schema validam a borda, Swagger publica o contrato e erros usam um
 envelope uniforme com códigos estáveis. A identidade de provedor é uma porta:
-`AUTH_MODE=none` é exclusivo de desenvolvimento e `AUTH_MODE=oidc` valida access tokens
-RS256 emitidos por Keycloak. Cada provider usa client credentials, recebe o claim
+`AUTH_MODE=none` é destinado ao desenvolvimento e `AUTH_MODE=oidc` valida access tokens
+RS256 emitidos por um IdP; o overlay local usa Keycloak. Cada provider do demo usa
+client credentials, recebe o claim
 `provider_id` e apenas os scopes necessários; a API exige scopes por rota e compara o
 claim ao `providerId` da operação antes de chamar o caso de uso.
 
@@ -205,6 +243,27 @@ opt-in e não pesa no caminho habitual.
 
 **Trade-off.** A API containerizada usa URLs diferentes das do host; `.env.example`
 mantém ambas explícitas para não mascarar essa diferença.
+
+## Limitações e riscos assumidos
+
+Estas limitações são deliberadas; não são garantias implícitas nem itens escondidos no
+setup:
+
+| Limitação atual | Consequência | Evolução possível |
+| --- | --- | --- |
+| Ledger de uma única wallet, sem partidas dobradas | Há trilha auditável e reconciliação, mas não uma contabilidade completa entre contas de origem e destino. | Adotar contas contábeis e lançamentos balanceados em débito/crédito. |
+| Publicação at-least-once | Um evento pode reaparecer após queda pós-publicação e pré-marcação. | Manter `eventId` estável e exigir inbox/deduplicação nos consumidores; não prometer exactly-once distribuído. |
+| Lock pessimista por wallet | Hot wallets serializam e podem elevar p95/p99 sob contenção. | Medir, ajustar timeouts/retries e particionar o domínio somente se a semântica permitir. |
+| PostgreSQL único como autoridade | O projeto local não demonstra alta disponibilidade, failover, réplica ou operação multi-região. | Usar serviço PostgreSQL gerenciado, backup/PITR, failover testado e runbooks. |
+| SQS tratado como canal interno | Mensagens não carregam autenticação criptográfica própria; a identidade no payload ainda é validada pelo domínio. | Restringir IAM/VPC, criptografar a fila e, se houver produtores não confiáveis, assinar envelopes. |
+| OIDC de demonstração | O adapter valida JWT RS256, scopes e provider, mas o Compose usa Keycloak e clients com segredos públicos; além disso, o parser não impede `AUTH_MODE=none` em produção. | Secret manager, TLS, políticas/rotação de clients, auditoria do IdP, hardening do realm e policy de deploy que exija OIDC. |
+| Reconciliação sem reparo | Divergência é detectada e preservada, mas exige resposta operacional humana. | Criar runbook e fluxo autorizado de compensação, nunca `UPDATE` silencioso no ledger. |
+| Observabilidade não bloqueante | Traces ou logs podem ser perdidos se o backend estiver indisponível. | Buffer durável/agent, alertas de perda e objetivos de nível de serviço para telemetria. |
+| Escala monetária fixa em duas casas | Atende o contrato e BRL, mas não moedas/ativos com outra escala. | Tornar escala parte da política monetária e migrar armazenamento/contratos de forma versionada. |
+
+O projeto também não afirma atomicidade distribuída entre PostgreSQL e SQS. A garantia
+real é efeito financeiro idempotente no banco mais entrega de eventos at-least-once. A
+outbox escolhe duplicação recuperável em vez de perda silenciosa.
 
 ## Estados e fluxo financeiro
 
