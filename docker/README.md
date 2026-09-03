@@ -18,7 +18,8 @@ docker/
 
 - `compose.yaml`: API, PostgreSQL, pgAdmin, LocalStack e inicialização das filas;
 - `compose.observability.yaml`: overlay opcional com Collector,
-  Prometheus, Tempo, Loki, Alloy e Grafana; somente Grafana publica porta no host;
+  Prometheus, Tempo, Loki, Alloy, cAdvisor, Blackbox Exporter e Grafana; somente
+  Grafana publica porta no host;
 - `compose.oidc.yaml`: overlay opcional que sobe Keycloak, importa o realm de demo e
   ativa `AUTH_MODE=oidc` na API;
 - diretórios internos: scripts, configuração e provisioning montados nos containers.
@@ -60,7 +61,8 @@ subindo somente o Compose base. Se a imagem da API ainda não existir, construa-
 com `bun run docker:build` (ou `bun run docker:build:classic` em hosts sem Buildx).
 
 Os serviços internos são descobertos pelos nomes `otel-collector`, `prometheus`,
-`tempo` e `loki`. A interface fica em `http://localhost:3001`; use as variáveis
+`blackbox-exporter`, `cadvisor`, `tempo` e `loki`. A interface fica em
+`http://localhost:3001`; use as variáveis
 `GRAFANA_PORT`, `GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD` para ajustar a
 instalação local.
 

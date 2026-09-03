@@ -17,6 +17,7 @@ import type { NodeSDKConfiguration } from '@opentelemetry/sdk-node';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { environmentFromProcess } from '../config/environment';
+import { recordHttpRequest } from './telemetry/metrics';
 
 export interface TelemetryConfig {
   enabled: boolean;
@@ -144,6 +145,7 @@ export function httpTracingMiddleware(
     method?: string;
     originalUrl?: string;
     url?: string;
+    routeOptions?: { url?: string };
     headers?: Record<string, string | string[] | undefined>;
   },
   response: {
@@ -194,6 +196,49 @@ const httpHeaderGetter = {
     return Object.keys(carrier.headers ?? {});
   },
 };
+
+type HookRequest = {
+  readonly method?: string;
+  readonly routeOptions?: { readonly url?: string };
+};
+
+type HookReply = {
+  readonly statusCode?: number;
+};
+
+type HookServer = {
+  addHook: (
+    name: 'onRequest' | 'onResponse',
+    hook: (request: HookRequest, reply: HookReply, done: () => void) => void,
+  ) => void;
+};
+
+/** Registers route-aware HTTP metrics after Fastify has resolved the route. */
+export function registerHttpMetrics(server: HookServer): void {
+  const startedAtByRequest = new WeakMap<object, bigint>();
+
+  server.addHook('onRequest', (request, _reply, done) => {
+    startedAtByRequest.set(request, process.hrtime.bigint());
+    done();
+  });
+
+  server.addHook('onResponse', (request, reply, done) => {
+    const route = request.routeOptions?.url;
+    if (telemetryStarted && route !== '/metrics' && reply.statusCode !== undefined) {
+      const startedAt = startedAtByRequest.get(request);
+      if (startedAt !== undefined) {
+        recordHttpRequest(
+          { method: request.method, route },
+          reply.statusCode,
+          Number(process.hrtime.bigint() - startedAt) / 1_000_000,
+        );
+      }
+    }
+
+    startedAtByRequest.delete(request);
+    done();
+  });
+}
 
 export async function withTelemetrySpan<T>(
   name: string,

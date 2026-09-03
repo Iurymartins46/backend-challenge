@@ -25,8 +25,14 @@ datasources:
         tags:
           - trace_id
           - traceID
+          - traceId
       serviceMap:
         datasourceUid: prometheus
+      spanBar:
+        type: tags
+        tags:
+          - http.route
+          - http.response.status_code
 
   - name: Loki
     uid: loki
@@ -34,3 +40,12 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
+    jsonData:
+      derivedFields:
+        - name: Trace ID
+          matcherRegex: '"traceId":"([a-f0-9]{32})"'
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+        - name: Correlation ID
+          matcherRegex: '"correlationId":"([^"]+)"'
+          url: '/explore?orgId=1&left=%5B%22now-30m%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bcompose_service%3D%5C%22api%5C%22%7D%20%7C%3D%20%5C%22$${__value.raw}%5C%22%22%7D%5D'

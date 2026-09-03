@@ -1,9 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import pino from 'pino';
 
+import { shouldSkipHttpAccessLog } from '../../src/infrastructure/logging/logging.module';
 import { LOG_REDACT_PATHS } from '../../src/infrastructure/logging/redaction';
 
 describe('structured logging', () => {
+  test('skips access logs for health endpoints', () => {
+    expect(shouldSkipHttpAccessLog({ url: '/health/live' })).toBe(true);
+    expect(shouldSkipHttpAccessLog({ url: '/health/ready?verbose=true' })).toBe(true);
+    expect(shouldSkipHttpAccessLog({ raw: { url: '/health/ready' } })).toBe(true);
+    expect(shouldSkipHttpAccessLog({ url: '/metrics?format=prometheus' })).toBe(true);
+    expect(shouldSkipHttpAccessLog({ url: '/wallets' })).toBe(false);
+    expect(shouldSkipHttpAccessLog({ url: '/metrics-extra' })).toBe(false);
+  });
+
   test('keeps operational identifiers and removes headers, payload and financial values', () => {
     const lines: string[] = [];
     const logger = pino(

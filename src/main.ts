@@ -12,7 +12,11 @@ import type { AppConfig } from './config/configuration';
 import { ErrorItemDto, ErrorResponseDto } from './common/http/error.dto';
 import { MoneyDto } from './common/http/money.dto';
 import { correlationMiddleware } from './infrastructure/logging/correlation.middleware';
-import { httpTracingMiddleware, shutdownTelemetry } from './infrastructure/telemetry';
+import {
+  httpTracingMiddleware,
+  registerHttpMetrics,
+  shutdownTelemetry,
+} from './infrastructure/telemetry';
 import { HealthResponseDto } from './modules/health/health.dto';
 import { HealthService } from './modules/health/health.service';
 import {
@@ -34,6 +38,7 @@ export async function bootstrap(): Promise<void> {
   });
   const logger = app.get(Logger);
   app.useLogger(logger);
+  registerHttpMetrics(app.getHttpAdapter().getInstance());
   app.use(httpTracingMiddleware);
   app.use(correlationMiddleware);
 

@@ -8,3 +8,30 @@ scrape_configs:
     static_configs:
       - targets:
           - api:3000
+
+  - job_name: wagering-api-health
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+          - http://api:3000/health/live
+        labels:
+          endpoint: live
+      - targets:
+          - http://api:3000/health/ready
+        labels:
+          endpoint: ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: wagering-api-container
+    static_configs:
+      - targets:
+          - cadvisor:8080

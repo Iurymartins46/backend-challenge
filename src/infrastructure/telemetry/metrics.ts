@@ -75,6 +75,52 @@ export function getTelemetryMetrics(): TelemetryMetrics {
 
 export type WagerMetricSource = 'http' | 'sqs' | 'worker';
 
+export type HttpMetricRequest = {
+  readonly method?: string;
+  readonly route?: string;
+};
+
+/**
+ * Records only bounded HTTP dimensions. The route must be the framework route
+ * template (for example, /wallets/:walletId), never the raw URL containing an
+ * identifier.
+ */
+export function recordHttpRequest(
+  request: HttpMetricRequest,
+  statusCode: number,
+  durationMilliseconds: number,
+  metrics: TelemetryMetrics = getTelemetryMetrics(),
+): void {
+  const route = boundedRoute(request.route);
+  const method = boundedMethod(request.method);
+  const statusClass = `${Math.floor(statusCode / 100)}xx`;
+  const attributes = { method, route, status_class: statusClass };
+
+  metrics.increment('wagering.http.requests', 1, attributes);
+  metrics.recordDuration('wagering.http.request.duration', durationMilliseconds, attributes);
+}
+
+function boundedRoute(route: string | undefined): string {
+  if (route === undefined || route.length === 0 || route.length > 160 || !route.startsWith('/')) {
+    return 'unmatched';
+  }
+
+  return route.split('?', 1)[0] || 'unmatched';
+}
+
+function boundedMethod(method: string | undefined): string {
+  const normalized = method?.toUpperCase();
+  return normalized === 'GET' ||
+    normalized === 'POST' ||
+    normalized === 'PUT' ||
+    normalized === 'PATCH' ||
+    normalized === 'DELETE' ||
+    normalized === 'HEAD' ||
+    normalized === 'OPTIONS'
+    ? normalized
+    : 'OTHER';
+}
+
 export function recordWagerTransaction(
   result: { readonly status: string; readonly idempotentReplay: boolean },
   kind: string,

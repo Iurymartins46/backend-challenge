@@ -209,7 +209,7 @@ Todos estes scripts leem o `.env` da raiz e usam `docker/compose.yaml`.
 | `bun run docker:up`               | Executa a stack base em segundo plano com `--wait`, usando a imagem da API já existente. Inclui PostgreSQL, pgAdmin, LocalStack, filas, migrations e API.                                                      |
 | `bun run docker:up:build`         | Igual ao anterior, mas usa `--build` antes de subir. É uma alternativa direta que exige um Buildx funcional; `docker:start` possui fallback automático.                                                        |
 | `bun run docker:start`            | Caminho recomendado para a primeira inicialização. `scripts/docker-start.sh` tenta construir a API com Buildx, repete automaticamente com o builder clássico se esse build falhar e então executa `docker:up`. |
-| `bun run docker:up:observability` | Combina o Compose base com o overlay de Collector, Prometheus, Tempo, Loki, Alloy e Grafana. Não força rebuild; execute `docker:start` antes se a imagem da API ainda não existir.                             |
+| `bun run docker:up:observability` | Combina o Compose base com o overlay de Collector, Prometheus, Blackbox Exporter, cAdvisor, Tempo, Loki, Alloy e Grafana. Não força rebuild; execute `docker:start` antes se a imagem da API ainda não existir. |
 | `bun run docker:up:oidc`          | Combina o Compose base com o overlay Keycloak, força `AUTH_MODE=oidc` na API e importa o realm de demonstração. Também requer a imagem da API previamente construída.                                          |
 | `bun run docker:oidc:config`      | Valida a composição final do Compose base mais o overlay OIDC sem iniciar containers.                                                                                                                          |
 | `bun run docker:up:infra`         | Sobe apenas PostgreSQL, LocalStack e o inicializador das filas. Não sobe API, pgAdmin nem o serviço de migrations e não usa `--wait`; confira a saúde antes do próximo comando.                                |
@@ -254,7 +254,8 @@ Não gere migrations vazias. Os detalhes do schema, constraints e transações e
 
 ## Observabilidade
 
-O overlay opcional inclui Collector, Prometheus, Tempo, Loki, Alloy e Grafana:
+O overlay opcional inclui Collector, Prometheus, Blackbox Exporter, cAdvisor, Tempo,
+Loki, Alloy e Grafana:
 
 ```bash
 bun run docker:up:observability
@@ -263,6 +264,9 @@ bun run docker:up:observability
 Grafana fica em `http://localhost:3001` por padrão. A aplicação continua funcional sem
 o overlay: readiness depende apenas de PostgreSQL e SQS. Configuração, sinais e limites
 estão em [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+
+Os dashboards provisionados são `API - Overview, Routes and Health`, `API - Logs (Loki)`,
+`API - Traces (Tempo)` e `Distributed Wagering - Processing and Outbox`.
 
 ## Autenticação OIDC opcional
 

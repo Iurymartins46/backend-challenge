@@ -17,7 +17,8 @@ A base inicial contém:
 
 O comportamento é provado com exporter in-memory, endpoint OTLP indisponível e
 `/metrics` em formato Prometheus servido pela própria API. O overlay local recebe traces
-no Collector, persiste-os no Tempo e provisiona Prometheus, Loki, Alloy e Grafana sem
+no Collector, persiste-os no Tempo e provisiona Prometheus, Loki, Alloy, cAdvisor,
+Blackbox Exporter e Grafana sem
 tornar esses serviços dependências do caminho financeiro.
 
 Spans e métricas de negócio são adicionados junto do fluxo que observam. A instrumentação
@@ -50,9 +51,11 @@ falha do exporter não pode falhar a operação financeira.
 ## Topologia local
 
 ```text
-API/workers ──OTLP traces──> OpenTelemetry Collector ──> Tempo
-API/workers ──/metrics─────────────────────────────────> Prometheus
-API/workers ──JSON stdout──> Grafana Alloy ────────────> Loki
+API ──OTLP traces──────> OpenTelemetry Collector ──> Tempo
+API ──/metrics────────────────────────────────────> Prometheus
+API ──JSON stdout──────> Grafana Alloy ───────────> Loki
+API ──health probes───> Blackbox Exporter ────────> Prometheus
+API ──container stats─> cAdvisor ─────────────────> Prometheus
                                       Grafana consulta ─┴─ backends
 ```
 
@@ -60,16 +63,16 @@ API/workers ──JSON stdout──> Grafana Alloy ─────────�
 
 - `docker/compose.yaml`: aplicação, PostgreSQL e LocalStack;
 - `docker/compose.observability.yaml`: overlay opcional de observabilidade;
-- `docker/observability/`: Collector, Prometheus, Tempo, Loki, Alloy e provisioning do
-  Grafana.
+- `docker/observability/`: Collector, Prometheus, Tempo, Loki, Alloy, cAdvisor,
+  Blackbox Exporter e provisioning do Grafana.
 
 Readiness depende de PostgreSQL e SQS, nunca do Collector ou dos backends visuais.
 Liveness verifica somente o processo. O overlay publica somente o Grafana no host; os
 demais serviços usam `expose` e comunicação pela rede interna do Compose.
 
-O dashboard provisionado `Distributed Wagering - Processing and Outbox` acompanha taxa e
-latência de processamento, mensagens na DLQ, quantidade pendente da outbox e lag da
-outbox. Os arquivos de configuração e provisioning ficam sob
+Os dashboards provisionados acompanham processamento/outbox, tráfego e latência por
+rota, CPU/memória do container da API, probes de liveness/readiness, logs filtrados da
+API no Loki e traces da API no Tempo. Os arquivos de configuração e provisioning ficam sob
 `docker/observability/`; as imagens são pinadas por padrão no overlay e podem ser
 substituídas por variáveis locais para testes de atualização.
 
@@ -81,8 +84,14 @@ consumidor. Separadamente, um monitor consulta periodicamente os atributos
 contadas sem afetar o processamento financeiro.
 
 `GET /metrics` é público e expõe somente métricas com labels de baixa cardinalidade
-(`kind`, `status` e `source`, quando aplicável). IDs de transação, wallet, provider,
-mensagem e evento ficam disponíveis em logs/traces, mas nunca são labels.
+(`kind`, `status`, `source`, `method`, `route` e `status_class`, quando aplicável). As
+rotas usam templates do framework; IDs de transação, wallet, provider, mensagem,
+correlação e trace ficam disponíveis em logs/traces, mas nunca são labels.
+
+O Alloy mantém somente os logs do container Compose `api`. Os logs de Grafana,
+Prometheus, Loki, Tempo e demais componentes ficam fora do índice do Loki para evitar
+volume e ruído desnecessários. O parsing JSON adiciona apenas `level` como label; IDs
+permanecem no conteúdo do log para busca e correlação.
 
 ## Risco Bun/OpenTelemetry
 

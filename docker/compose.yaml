@@ -81,7 +81,7 @@ services:
       start_period: 5s
 
   pgadmin:
-    image: elestio/pgadmin:REL-9_17
+    image: elestio/pgadmin:latest
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:?Set PGADMIN_DEFAULT_EMAIL in .env}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?Set PGADMIN_DEFAULT_PASSWORD in .env}

@@ -122,9 +122,9 @@ do commit.
    `correlationId`s e os últimos logs por processo, sem expor valores financeiros.
 7. Mostrar `POST /wallets/:walletId/reconciliation` e explicar que divergência é
    sinalizada por resposta, log e métrica, sem autocorreção.
-8. Abrir o Grafana em `http://localhost:3001`, mostrar o dashboard provisionado e
-   consultar um trace no Tempo e os logs correlatos no Loki. A stack visual é um overlay
-   opcional e não participa da readiness financeira.
+8. Abrir o Grafana em `http://localhost:3001`, mostrar os dashboards de overview/rotas,
+   recursos e saúde, consultar um trace no Tempo e os logs correlatos no Loki. A stack
+   visual é um overlay opcional e não participa da readiness financeira.
 
 ## Registro de versões e execução
 
