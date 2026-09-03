@@ -138,6 +138,9 @@ services:
 
   migrations:
     image: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in .env}-api
+    # The image is produced by the api service in the same Compose project.
+    # Never try to pull this local-only tag from a registry during first startup.
+    pull_policy: never
     depends_on:
       postgres:
         condition: service_healthy
@@ -153,6 +156,7 @@ services:
     restart: 'no'
 
   api:
+    image: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in .env}-api
     build:
       context: ..
       dockerfile: docker/api/Dockerfile

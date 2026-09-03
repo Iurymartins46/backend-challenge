@@ -17,9 +17,9 @@ bun run docker:start
 bun run smoke:http
 ```
 
-`docker:start` já constrói a API, aguarda as dependências, cria as filas e executa o
-serviço de migrations. Não é necessário aplicar a mesma migration manualmente antes
-desse fluxo.
+`docker:start` constrói a API, usa automaticamente o builder clássico se o Buildx
+falhar, aguarda as dependências, cria as filas e executa o serviço de migrations. Não
+é necessário aplicar a mesma migration manualmente antes desse fluxo.
 
 Verificações locais sem dependências reais:
 
@@ -41,10 +41,12 @@ bun run test:concurrency
 bun run test:load
 ```
 
-`test:integration` cria bancos temporários para seus cenários e
-`test:concurrency` executa duas rodadas completas. Cada rodada cria banco, filas e três
-processos próprios. Ambos exigem PostgreSQL e LocalStack saudáveis, mas não devem usar o
-banco de desenvolvimento como fixture de resultado.
+`test:integration` cria bancos temporários para seus cenários; os testes de inbox também
+criam uma fila de comandos e uma DLQ exclusivas, portanto podem rodar enquanto a API de
+desenvolvimento consome a fila padrão. `test:concurrency` executa duas rodadas completas,
+e cada rodada cria banco, filas e três processos próprios. Ambos exigem PostgreSQL e
+LocalStack saudáveis, mas não usam o banco nem as filas de desenvolvimento como fixture
+de resultado.
 
 ## Diagrama final
 
@@ -155,10 +157,12 @@ O publisher continua os lotes imediatamente enquanto há mensagens disponíveis 
 aguarda o intervalo configurado quando não há trabalho. Assim, a carga mede também a
 recuperação do backlog sem relaxar as garantias financeiras.
 
-O caminho padrão `bun run docker:up:build` encontrou o Buildx ausente no host; o caminho
-documentado `bun run docker:build:classic` construiu a imagem e `bun run docker:up`
-subiu a API com healthcheck saudável. A duração acima é a observada nesta execução, não
-uma estimativa de desempenho.
+`bun run docker:start` foi validado depois da remoção da imagem local da API. O script
+detectou o link simbólico quebrado do Buildx, selecionou automaticamente o builder
+clássico, construiu a imagem, executou migrations e subiu a API com healthcheck saudável.
+O serviço de migrations usa `pull_policy: never`, pois sua imagem é produzida localmente
+pelo serviço da API e não deve ser procurada em um registry. A duração acima é a
+observada nesta execução, não uma estimativa de desempenho.
 
 Na Fase 15, o overlay OIDC foi validado com Keycloak 26.7.3 e realm importado. Um token
 `client_credentials` de `provider-a` passou pela API atual executada no host contra as

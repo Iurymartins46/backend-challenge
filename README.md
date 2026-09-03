@@ -207,8 +207,8 @@ Todos estes scripts leem o `.env` da raiz e usam `docker/compose.yaml`.
 | `bun run docker:build` | Constrói apenas a imagem `api` com o builder padrão. Não inicia serviços. |
 | `bun run docker:build:classic` | Faz o mesmo build com BuildKit desabilitado; é o fallback para hosts sem o plugin Buildx. |
 | `bun run docker:up` | Executa a stack base em segundo plano com `--wait`, usando a imagem da API já existente. Inclui PostgreSQL, pgAdmin, LocalStack, filas, migrations e API. |
-| `bun run docker:up:build` | Igual ao anterior, mas usa `--build` antes de subir. É a implementação usada por `docker:start`. |
-| `bun run docker:start` | Alias de `docker:up:build` e caminho recomendado para a primeira inicialização. |
+| `bun run docker:up:build` | Igual ao anterior, mas usa `--build` antes de subir. É uma alternativa direta que exige um Buildx funcional; `docker:start` possui fallback automático. |
+| `bun run docker:start` | Caminho recomendado para a primeira inicialização. `scripts/docker-start.sh` tenta construir a API com Buildx, repete automaticamente com o builder clássico se esse build falhar e então executa `docker:up`. |
 | `bun run docker:up:observability` | Combina o Compose base com o overlay de Collector, Prometheus, Tempo, Loki, Alloy e Grafana. Não força rebuild; execute `docker:start` antes se a imagem da API ainda não existir. |
 | `bun run docker:up:oidc` | Combina o Compose base com o overlay Keycloak, força `AUTH_MODE=oidc` na API e importa o realm de demonstração. Também requer a imagem da API previamente construída. |
 | `bun run docker:oidc:config` | Valida a composição final do Compose base mais o overlay OIDC sem iniciar containers. |
@@ -320,7 +320,7 @@ rotação de chaves sem reinício.
 
 ## Problemas comuns
 
-- Sem Buildx: execute `bun run docker:build:classic` e depois `bun run docker:up`.
+- Sem Buildx: `bun run docker:start` usa automaticamente o builder clássico. Para executar o fallback manualmente, use `bun run docker:build:classic` e depois `bun run docker:up`.
 - Dependências não ficam saudáveis: use `bun run docker:ps` e os logs do serviço no
   Compose; as portas padrão são 5432 (PostgreSQL) e 4566 (LocalStack).
 - API sem tabelas: execute `bun run migration:run` ou reinicie por `bun run docker:start`.

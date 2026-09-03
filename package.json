@@ -29,7 +29,7 @@
     "docker:build:classic": "COMPOSE_DOCKER_CLI_BUILD=0 DOCKER_BUILDKIT=0 docker compose --env-file .env -f docker/compose.yaml build api",
     "docker:up": "docker compose --env-file .env -f docker/compose.yaml up -d --wait",
     "docker:up:build": "docker compose --env-file .env -f docker/compose.yaml up -d --build --wait",
-    "docker:start": "bun run docker:up:build",
+    "docker:start": "bash scripts/docker-start.sh",
     "docker:up:observability": "docker compose --env-file .env -f docker/compose.yaml -f docker/compose.observability.yaml up -d --wait",
     "docker:up:oidc": "docker compose --env-file .env -f docker/compose.yaml -f docker/compose.oidc.yaml up -d --wait",
     "docker:oidc:config": "docker compose --env-file .env -f docker/compose.yaml -f docker/compose.oidc.yaml config --quiet",

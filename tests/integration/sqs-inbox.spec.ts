@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
+  CreateQueueCommand,
+  DeleteQueueCommand,
+  GetQueueAttributesCommand,
   GetQueueUrlCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
@@ -32,6 +35,11 @@ const appConfig = configuration();
 
 let sqsClient: SQSClient | undefined;
 let queue: AwsSqsQueueAdapter | undefined;
+const queueToken = `${process.pid}-${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+const commandQueueName = `integration-inbox-${queueToken}.fifo`;
+const commandDlqName = `integration-inbox-dlq-${queueToken}.fifo`;
+let commandQueueUrl: string | undefined;
+let commandDlqUrl: string | undefined;
 
 integration('SQS consumer and inbox', () => {
   beforeAll(async () => {
@@ -45,10 +53,28 @@ integration('SQS consumer and inbox', () => {
         secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
       },
     });
+    commandDlqUrl = await createQueue(sqsClient, commandDlqName);
+    const dlqAttributes = await sqsClient.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: commandDlqUrl,
+        AttributeNames: ['QueueArn'],
+      }),
+    );
+    const deadLetterTargetArn = dlqAttributes.Attributes?.QueueArn;
+    if (deadLetterTargetArn === undefined) {
+      throw new Error('LocalStack did not return the integration DLQ ARN.');
+    }
+    commandQueueUrl = await createQueue(sqsClient, commandQueueName, {
+      RedrivePolicy: JSON.stringify({ deadLetterTargetArn, maxReceiveCount: '5' }),
+    });
     queue = new AwsSqsQueueAdapter(sqsClient);
   });
 
   afterAll(async () => {
+    if (sqsClient !== undefined) {
+      await deleteQueue(sqsClient, commandQueueUrl);
+      await deleteQueue(sqsClient, commandDlqUrl);
+    }
     sqsClient?.destroy();
     if (dataSource.isInitialized) {
       await dataSource.destroy();
@@ -101,7 +127,7 @@ integration('SQS consumer and inbox', () => {
       ),
       {
         enabled: false,
-        queueName: env.SQS_COMMAND_QUEUE_NAME,
+        queueName: commandQueueName,
         consumerName: appConfig.messaging.consumerName,
         concurrency: 1,
         waitTimeSeconds: 1,
@@ -189,7 +215,7 @@ integration('SQS consumer and inbox', () => {
       ),
       {
         enabled: false,
-        queueName: env.SQS_COMMAND_QUEUE_NAME,
+        queueName: commandQueueName,
         consumerName: appConfig.messaging.consumerName,
         concurrency: 1,
         waitTimeSeconds: 0,
@@ -207,8 +233,8 @@ integration('SQS consumer and inbox', () => {
     });
 
     await sendCommand(sqsClient, commandBody(applicationMessageId, divergentData), wallet.id);
-    const dlqUrl = await getQueueUrl(sqsClient, env.SQS_COMMAND_DLQ_NAME);
-    const commandUrl = await getQueueUrl(sqsClient, env.SQS_COMMAND_QUEUE_NAME);
+    const dlqUrl = await getQueueUrl(sqsClient, commandDlqName);
+    const commandUrl = await getQueueUrl(sqsClient, commandQueueName);
     await waitFor(async () => {
       const messages = await sqsClient!.send(
         new ReceiveMessageCommand({
@@ -225,7 +251,7 @@ integration('SQS consumer and inbox', () => {
           receiptHandle: message.ReceiptHandle ?? '',
           body: message.Body ?? '',
         });
-        await sqsQueue.changeVisibility(env.SQS_COMMAND_QUEUE_NAME, message.ReceiptHandle ?? '', 0);
+        await sqsQueue.changeVisibility(commandQueueName, message.ReceiptHandle ?? '', 0);
       }
 
       const deadLetters = await sqsClient!.send(
@@ -244,7 +270,7 @@ integration('SQS consumer and inbox', () => {
 
     const dlqMonitor = new SqsDlqMetricsMonitor(sqsQueue, metrics, {
       enabled: false,
-      queueName: env.SQS_COMMAND_DLQ_NAME,
+      queueName: commandDlqName,
       refreshIntervalMs: 5_000,
     });
     await waitFor(async () => {
@@ -283,12 +309,44 @@ function commandBody(messageId: string, data: Record<string, unknown>): string {
 async function sendCommand(client: SQSClient, body: string, walletId: string): Promise<void> {
   await client.send(
     new SendMessageCommand({
-      QueueUrl: await getQueueUrl(client, env.SQS_COMMAND_QUEUE_NAME),
+      QueueUrl: await getQueueUrl(client, commandQueueName),
       MessageBody: body,
       MessageGroupId: walletId,
       MessageDeduplicationId: randomUUID(),
     }),
   );
+}
+
+async function createQueue(
+  client: SQSClient,
+  queueName: string,
+  extraAttributes: Record<string, string> = {},
+): Promise<string> {
+  const output = await client.send(
+    new CreateQueueCommand({
+      QueueName: queueName,
+      Attributes: {
+        FifoQueue: 'true',
+        ContentBasedDeduplication: 'false',
+        ...extraAttributes,
+      },
+    }),
+  );
+  if (output.QueueUrl === undefined) {
+    throw new Error(`LocalStack did not create queue ${queueName}.`);
+  }
+  return output.QueueUrl;
+}
+
+async function deleteQueue(client: SQSClient, queueUrl: string | undefined): Promise<void> {
+  if (queueUrl === undefined) {
+    return;
+  }
+  try {
+    await client.send(new DeleteQueueCommand({ QueueUrl: queueUrl }));
+  } catch {
+    // Cleanup is best effort if LocalStack was stopped externally.
+  }
 }
 
 async function getQueueUrl(client: SQSClient, queueName: string): Promise<string> {
