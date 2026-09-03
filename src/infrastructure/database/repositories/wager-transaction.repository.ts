@@ -29,6 +29,11 @@ export class TypeOrmWagerTransactionRepository implements WagerTransactionReposi
     return entity === null ? null : WagerTransactionMapper.toDomain(entity);
   }
 
+  async findByIdAndProviderId(id: string, providerId: string): Promise<WagerTransaction | null> {
+    const entity = await this.repository.findOne({ where: { id, providerId } });
+    return entity === null ? null : WagerTransactionMapper.toDomain(entity);
+  }
+
   async findByProviderAndExternalTransactionId(
     providerId: string,
     externalTransactionId: string,

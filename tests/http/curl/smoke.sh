@@ -4,6 +4,7 @@ set -euo pipefail
 
 base_url="${BASE_URL:-http://localhost:3000}"
 curl_max_time_seconds="${CURL_MAX_TIME_SECONDS:-10}"
+startup_timeout_seconds="${SMOKE_STARTUP_TIMEOUT_SECONDS:-30}"
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/distributed-wagering-smoke.XXXXXX")"
 body_file="$temp_dir/response.json"
 
@@ -24,6 +25,19 @@ request() {
   http_status="$(curl --silent --show-error --max-time "$curl_max_time_seconds" \
     --output "$body_file" --write-out '%{http_code}' -X "$method" "$base_url$path" "$@")"
   http_body="$(<"$body_file")"
+}
+
+wait_for_liveness() {
+  local deadline=$((SECONDS + startup_timeout_seconds))
+  while (( SECONDS < deadline )); do
+    if curl --silent --show-error --max-time 2 --output /dev/null "$base_url/health/live"; then
+      return
+    fi
+    sleep 1
+  done
+
+  printf 'API did not become live within %s seconds.\n' "$startup_timeout_seconds" >&2
+  exit 1
 }
 
 expect_status() {
@@ -53,6 +67,7 @@ external_transaction_id="smoke-$(date +%s)-$$"
 idempotency_key="smoke-key-${external_transaction_id}"
 
 printf '%s\n' 'Checking liveness...'
+wait_for_liveness
 request GET '/health/live'
 expect_status 200
 

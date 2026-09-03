@@ -14,6 +14,9 @@ import { PUBLIC_ROUTE } from '../../common/http/public.decorator';
 import { ErrorCode } from '../../common/http/error-codes';
 import { PROVIDER_IDENTITY_PORT, type ProviderIdentityPort } from './provider-identity.port';
 import { PROVIDER_SCOPES } from './provider-scopes.decorator';
+import type { ProviderPrincipal } from './provider-identity.port';
+
+const PROVIDER_PRINCIPAL_PROPERTY = 'providerPrincipal';
 
 @Injectable()
 export class ProviderAuthGuard implements CanActivate {
@@ -74,8 +77,35 @@ export class ProviderAuthGuard implements CanActivate {
       });
     }
 
+    attachProviderPrincipal(request, principal);
+
     return true;
   }
+}
+
+/** Returns the principal authenticated by ProviderAuthGuard for this request. */
+export function providerPrincipalFromRequest(request: unknown): ProviderPrincipal | undefined {
+  if (typeof request !== 'object' || request === null) {
+    return undefined;
+  }
+  const principal = (request as Record<string, unknown>)[PROVIDER_PRINCIPAL_PROPERTY];
+  return isProviderPrincipal(principal) ? principal : undefined;
+}
+
+function attachProviderPrincipal(request: unknown, principal: ProviderPrincipal): void {
+  if (typeof request === 'object' && request !== null) {
+    (request as Record<string, unknown>)[PROVIDER_PRINCIPAL_PROPERTY] = principal;
+  }
+}
+
+function isProviderPrincipal(value: unknown): value is ProviderPrincipal {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as ProviderPrincipal).providerId === 'string' &&
+    typeof (value as ProviderPrincipal).subject === 'string' &&
+    Array.isArray((value as ProviderPrincipal).scopes)
+  );
 }
 
 function providerIdFromRequest(request: unknown): string | undefined {

@@ -9,6 +9,7 @@ import type {
 import { canonicalizeJson, type JsonValue } from '../../modules/wagering/application/payload-hash';
 
 export const WAGER_TRANSACTION_REQUESTED_TYPE = 'WagerTransactionRequested';
+const ISO_8601_UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const wagerTransactionRequestedDataSchema = createWagerTransactionSchema.extend({
   idempotencyKey: z.string().min(1).max(255),
@@ -17,11 +18,20 @@ const wagerTransactionRequestedDataSchema = createWagerTransactionSchema.extend(
 export const wagerTransactionRequestedEnvelopeSchema = z.strictObject({
   messageId: z.string().min(1).max(255),
   type: z.literal(WAGER_TRANSACTION_REQUESTED_TYPE),
-  occurredAt: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+  occurredAt: z.string().refine(isCanonicalUtcTimestamp, {
     message: 'occurredAt must be an ISO-8601 date.',
   }),
   data: wagerTransactionRequestedDataSchema,
 });
+
+function isCanonicalUtcTimestamp(value: string): boolean {
+  if (!ISO_8601_UTC_MILLISECONDS.test(value)) {
+    return false;
+  }
+
+  const timestamp = new Date(value);
+  return !Number.isNaN(timestamp.getTime()) && timestamp.toISOString() === value;
+}
 
 export type WagerTransactionRequestedEnvelope = z.infer<
   typeof wagerTransactionRequestedEnvelopeSchema

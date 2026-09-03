@@ -32,6 +32,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ERROR_CATALOG, ErrorCode } from '../../common/http/error-codes';
 import { ErrorResponseDto } from '../../common/http/error.dto';
 import { ProviderScopes } from '../auth/provider-scopes.decorator';
+import { providerPrincipalFromRequest } from '../auth/provider-auth.guard';
 import {
   GetWagerTransactionUseCase,
   ProcessWagerTransactionUseCase,
@@ -180,8 +181,12 @@ export class WageringController {
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   async getById(
     @Param({ schema: wagerTransactionIdParamsSchema }) params: WagerTransactionIdParamsDto,
+    @Req() request: FastifyRequest,
   ): Promise<WagerTransactionDetailsDto> {
-    return this.getWagerTransactionUseCase.byId(params.transactionId);
+    return this.getWagerTransactionUseCase.byId(
+      params.transactionId,
+      providerPrincipalFromRequest(request)?.providerId,
+    );
   }
 
   @Get('providers/:providerId/wagering/transactions/:externalTransactionId')

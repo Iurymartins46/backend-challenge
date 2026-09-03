@@ -14,6 +14,7 @@ export interface WalletRepositoryPort {
 
 export interface WagerTransactionRepositoryPort {
   findById(id: string): Promise<WagerTransaction | null>;
+  findByIdAndProviderId(id: string, providerId: string): Promise<WagerTransaction | null>;
   findByProviderAndExternalTransactionId(
     providerId: string,
     externalTransactionId: string,

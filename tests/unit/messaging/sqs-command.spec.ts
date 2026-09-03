@@ -126,6 +126,19 @@ describe('SQS command envelope', () => {
       ),
     ).toThrow('SQS message envelope is invalid');
   });
+
+  test('rejects non-canonical date formats accepted by Date.parse', () => {
+    for (const occurredAt of [
+      '2026',
+      '01/02/2026',
+      '2026-09-01T12:00:00Z',
+      '2026-02-30T00:00:00.000Z',
+    ]) {
+      expect(() =>
+        parseWagerTransactionRequestedEnvelope(JSON.stringify(commandEnvelope({ occurredAt }))),
+      ).toThrow('SQS message envelope is invalid');
+    }
+  });
 });
 
 class FakeQueue implements SqsQueuePort {

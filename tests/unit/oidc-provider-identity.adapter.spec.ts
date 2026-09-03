@@ -53,8 +53,18 @@ describe('OIDC provider identity adapter', () => {
     }
 
     const valid = token(key.privateKey, {});
+    const [header, payload, encodedSignature] = valid.split('.');
+    if (header === undefined || payload === undefined || encodedSignature === undefined) {
+      throw new Error('Expected a JWT with three parts.');
+    }
+    const signature = Buffer.from(encodedSignature, 'base64url');
+    signature[0] = (signature[0] ?? 0) ^ 1;
+    const tampered = `${header}.${payload}.${signature.toString('base64url')}`;
+    expect(Buffer.from(tampered.split('.')[2] ?? '', 'base64url')).not.toEqual(
+      Buffer.from(encodedSignature, 'base64url'),
+    );
     await expectHttpStatus(
-      adapter.identify({ headers: { authorization: `Bearer ${valid.slice(0, -1)}x` } }),
+      adapter.identify({ headers: { authorization: `Bearer ${tampered}` } }),
       401,
     );
   });

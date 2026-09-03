@@ -36,6 +36,7 @@ terminar, use:
 
 - API: `http://localhost:3000`
 - Swagger: `http://localhost:3000/docs`
+- pgAdmin: `http://localhost:8081` (somente loopback; configure as credenciais em `.env`)
 - OpenAPI: `http://localhost:3000/docs-json`
 - liveness: `http://localhost:3000/health/live`
 - readiness: `http://localhost:3000/health/ready`
@@ -108,9 +109,9 @@ coleção cURL em [tests/http/curl](tests/http/curl).
 | `bun run docker:config` | Valida a configuração final do Docker Compose usando `.env`. |
 | `bun run docker:build` | Constrói somente a imagem da API. |
 | `bun run docker:build:classic` | Constrói a imagem com o builder clássico para hosts sem Buildx. |
-| `bun run docker:up` | Inicia a stack base usando imagens já construídas. |
-| `bun run docker:up:build` | Constrói a imagem e inicia a stack base, sem aplicar migrations. |
-| `bun run docker:start` | Constrói, inicia a stack base e aplica migrations; é o atalho recomendado para desenvolvimento local. |
+| `bun run docker:up` | Inicia a stack base, incluindo pgAdmin e migrations, usando imagens já construídas. |
+| `bun run docker:up:build` | Constrói a imagem, aplica migrations e inicia a stack base. |
+| `bun run docker:start` | Alias recomendado para construir, migrar e iniciar a aplicação local. |
 | `bun run docker:up:observability` | Inicia API, dependências e o overlay opcional de observabilidade. |
 | `bun run docker:up:oidc` | Inicia API, dependências e o overlay opcional Keycloak/OIDC com realm de demonstração. |
 | `bun run docker:oidc:config` | Valida a composição base mais o overlay OIDC usando `.env`. |

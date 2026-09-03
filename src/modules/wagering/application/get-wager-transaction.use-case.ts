@@ -5,8 +5,11 @@ import { toWagerTransactionView, type WagerTransactionView } from './transaction
 export class GetWagerTransactionUseCase {
   constructor(private readonly unitOfWork: FinancialUnitOfWorkPort) {}
 
-  async byId(transactionId: string): Promise<WagerTransactionView> {
-    const transaction = await this.unitOfWork.transactions.findById(transactionId);
+  async byId(transactionId: string, providerId?: string): Promise<WagerTransactionView> {
+    const transaction =
+      providerId === undefined
+        ? await this.unitOfWork.transactions.findById(transactionId)
+        : await this.unitOfWork.transactions.findByIdAndProviderId(transactionId, providerId);
     if (transaction === null) {
       throw new WagerTransactionNotFoundError();
     }

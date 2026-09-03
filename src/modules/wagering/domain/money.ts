@@ -21,11 +21,16 @@ const MIN_BIGINT = -(1n << 63n);
 const MAX_BIGINT = (1n << 63n) - 1n;
 const MINOR_UNITS_PER_MAJOR = 100n;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+const ISO_4217_CURRENCIES = new Set(Intl.supportedValuesOf('currency'));
 const CANONICAL_UNSIGNED_AMOUNT_PATTERN = /^(0|[1-9][0-9]*)\.[0-9]{2}$/;
 const DECIMAL_AMOUNT_PATTERN = /^(?:[0-9]+)(?:\.[0-9]*)?$/;
 
 function assertCurrency(currency: unknown): asserts currency is string {
-  if (typeof currency !== 'string' || !CURRENCY_PATTERN.test(currency)) {
+  if (
+    typeof currency !== 'string' ||
+    !CURRENCY_PATTERN.test(currency) ||
+    !ISO_4217_CURRENCIES.has(currency)
+  ) {
     throw new MoneyCurrencyError(currency);
   }
 }

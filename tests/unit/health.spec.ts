@@ -10,7 +10,7 @@ import { HealthService } from '../../src/modules/health/health.service';
 function healthService(
   options: {
     query?: () => Promise<unknown>;
-    send?: () => Promise<unknown>;
+    send?: (...args: unknown[]) => Promise<unknown>;
     timeoutMs?: number;
   } = {},
 ): HealthService {
@@ -24,6 +24,9 @@ function healthService(
     get(path: string): unknown {
       if (path === 'messaging.commandQueueName') {
         return 'wager-transactions.fifo';
+      }
+      if (path === 'messaging.eventsQueueName') {
+        return 'wager-events.fifo';
       }
       if (path === 'health.timeoutMs') {
         return options.timeoutMs ?? 20;
@@ -48,6 +51,30 @@ describe('health checks', () => {
         sqs: { status: 'up' },
       },
     });
+  });
+
+  test('checks both command and event queues and aborts an overdue SQS probe', async () => {
+    const calls: Array<{ queueName: string | undefined; aborted: boolean | undefined }> = [];
+    const service = healthService({
+      timeoutMs: 5,
+      send: (command: unknown, options: unknown) => {
+        const queueName = (command as { input?: { QueueName?: string } }).input?.QueueName;
+        const signal = (options as { abortSignal?: AbortSignal }).abortSignal;
+        calls.push({ queueName, aborted: signal?.aborted });
+        return new Promise((_, reject) =>
+          signal?.addEventListener('abort', () => reject(new Error('aborted'))),
+        );
+      },
+    });
+
+    expect(await service.ready()).toMatchObject({
+      status: 'error',
+      details: { postgres: { status: 'up' }, sqs: { status: 'down' } },
+    });
+    expect(calls.map((call) => call.queueName)).toEqual([
+      'wager-transactions.fifo',
+      'wager-events.fifo',
+    ]);
   });
 
   test('returns a failed readiness result after the dependency deadline', async () => {

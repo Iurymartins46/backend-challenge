@@ -129,6 +129,28 @@ function payloadFrom(exception: unknown): { status: number; payload: ExceptionPa
   }
 
   if (exception instanceof DomainError) {
+    if (exception.code === 'error.domain.invariant_violation') {
+      return {
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        payload: {},
+      };
+    }
+
+    if (exception.code === 'error.messaging.inbox_payload_conflict') {
+      return {
+        status: HttpStatus.CONFLICT,
+        payload: {
+          message: 'The application message id conflicts with an existing command.',
+          errors: [
+            {
+              code: ErrorCode.IdempotencyPayloadConflict,
+              detail: 'The application message id conflicts with an existing command.',
+            },
+          ],
+        },
+      };
+    }
+
     return {
       status: domainErrorStatus(exception.code),
       payload: {

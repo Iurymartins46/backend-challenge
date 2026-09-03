@@ -10,6 +10,11 @@ export class DatabaseHealthCheck {
       throw new Error('PostgreSQL data source is not initialized.');
     }
 
-    await this.dataSource.query('SELECT 1');
+    const rows = await this.dataSource.query<readonly { wallets?: unknown }[]>(
+      "SELECT to_regclass('public.wallets') AS wallets",
+    );
+    if (rows[0]?.wallets !== 'wallets') {
+      throw new Error('The financial database schema is not ready.');
+    }
   }
 }
