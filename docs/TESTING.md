@@ -114,10 +114,11 @@ duplicados que uma simples comparação de saldo poderia esconder.
 
 A coleção OpenCollection para Bruno fica em `tests/http/bruno`. Abra exatamente esse
 diretório no Bruno 3+ e selecione `local` para `AUTH_MODE=none`, ou `oidc` após iniciar
-`bun run docker:up:oidc`. No ambiente OIDC, cadastre `oidcClientSecret` como secret local,
-execute primeiro `OIDC/Obter token client credentials` e depois as rotas protegidas; health
+`bun run docker:up:oidc`. A coleção já traz valores demonstrativos compartilhados, e o ambiente
+OIDC sobrescreve apenas os valores específicos do provedor; execute primeiro `OIDC/Obter token
+client credentials` e depois as rotas protegidas; health
 e métricas não usam token. Os arquivos da coleção são
-versionados e fazem parte da entrega de cada rota, enquanto valores secretos permanecem
+versionados e fazem parte da entrega de cada rota, enquanto credenciais reais permanecem
 fora do Git.
 
 Os cenários manuais cobrem:

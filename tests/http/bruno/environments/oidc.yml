@@ -1,21 +1,5 @@
 name: oidc
 variables:
-  - name: baseUrl
-    value: http://localhost:3000
-  - name: oidcTokenUrl
-    value: http://localhost:8080/realms/wagering/protocol/openid-connect/token
-  - name: oidcClientId
-    value: provider-a
-  - name: oidcClientSecret
-    value: ''
-  - name: oidcAccessToken
-    value: ''
-  - name: walletId
-    value: ''
-  - name: playerId
-    value: 0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1
-  - name: transactionId
-    value: ''
   - name: providerId
     value: provider-a
   - name: externalTransactionId

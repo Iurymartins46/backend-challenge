@@ -4,6 +4,7 @@ info:
   seq: 1
 
 docs: |-
-  Selecione o ambiente `oidc`, armazene `provider-a-secret` como secret local na variável
-  `oidcClientSecret` e execute primeiro `Obter token client credentials`. O token é salvo
-  em memória na variável `oidcAccessToken` e as rotas de wallet/wagering usam Bearer.
+  Selecione o ambiente `oidc` e execute primeiro `Obter token client credentials`. O ambiente
+  já contém o segredo público do demo local em `oidcClientSecret`; substitua-o por um secret
+  externo em ambientes compartilhados. O token é salvo em memória na variável
+  `oidcAccessToken` e as rotas de wallet/wagering usam Bearer.

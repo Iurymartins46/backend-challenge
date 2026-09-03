@@ -3,6 +3,32 @@ opencollection: 1.0.0
 info:
   name: backend-challenge
   version: 0.1.0
+
+request:
+  variables:
+    - name: baseUrl
+      value: http://localhost:3000
+    - name: oidcTokenUrl
+      value: http://localhost:8080/realms/wagering/protocol/openid-connect/token
+    - name: oidcClientId
+      value: provider-a
+    - name: oidcClientSecret
+      value: provider-a-secret
+    - name: oidcAccessToken
+      value: example-access-token
+    - name: walletId
+      value: 0192f291-27dd-7d3f-8071-5f8685deef37
+    - name: playerId
+      value: 0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1
+    - name: transactionId
+      value: 0192f298-345e-7e38-af88-e43f851a819d
+    - name: providerId
+      value: provider-bruno
+    - name: externalTransactionId
+      value: transaction-bruno-1
+    - name: idempotencyKey
+      value: provider-bruno:transaction-bruno-1
+
 bundled: false
 extensions:
   bruno:
